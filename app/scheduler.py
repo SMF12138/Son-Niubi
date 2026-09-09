@@ -48,13 +48,7 @@ def _run_forecast_only():
     from app import forecast as fc
 
     df, oil_df, sent_df, rate_df = _load_all()
-    # 读取已有的 direction_result.json 作为权重
-    import os
-    dir_rep = None
-    if config.DIRECTION_JSON.exists():
-        with open(config.DIRECTION_JSON, encoding="utf-8") as f:
-            dir_rep = json.load(f)
-    fc.save_forecasts(df, dir_rep, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+    fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
 
 
 def _run_full_update():
@@ -96,11 +90,7 @@ def _run_full_update():
         from app import forecast as fc
         from app.cli import _load_all
         df, oil_df, sent_df, rate_df = _load_all()
-        dir_rep = None
-        if config.DIRECTION_JSON.exists():
-            with open(config.DIRECTION_JSON, encoding="utf-8") as f:
-                dir_rep = json.load(f)
-        fc.save_forecasts(df, dir_rep, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+        fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
         log.info("[slow] forecast done")
     except Exception as e:
         log.warning("[slow] forecast failed: %s", e)

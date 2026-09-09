@@ -163,12 +163,15 @@ def fetch_oil_prices() -> dict:
         log.warning("GitHub 油价主源失败: %s", e)
 
     # 备用:Yahoo Finance BZ=F (免密钥, 通常当日更新)
+    # 主源落后 >3 天才试; 失败(含429)静默降级不刷日志, 避免每次启动拖慢
     current = store.last_oil_date()
     if not current or (dt.date.today() - dt.date.fromisoformat(current)).days > 3:
         try:
             url = ("https://query1.finance.yahoo.com/v8/finance/chart/BZ=F"
                    "?range=3mo&interval=1d")
-            resp = REQ.get(url, timeout=config.HTTP_TIMEOUT)
+            resp = REQ.get(url, timeout=5)
+            if resp.status_code != 200:
+                return stats  # 429/超时: 静默跳过, 不拖慢启动
             resp.raise_for_status()
             j = resp.json()
             ts_list = j["chart"]["result"][0]["timestamp"]
@@ -186,7 +189,7 @@ def fetch_oil_prices() -> dict:
                 stats["new_rows"] += len(rows2)
                 stats["last_date"] = store.last_oil_date()
                 stats["yahoo_fill"] = True
-        except Exception as e:
-            log.warning("Yahoo 油价备用源失败: %s", e)
+        except Exception:
+            pass  # 备用源失败静默降级
 
     return stats

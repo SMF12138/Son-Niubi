@@ -22,11 +22,25 @@ _BASE = ("https://iss.moex.com/iss/engines/currency/markets/selt/boards/"
 MAX_PAGES = 80
 
 
-def fetch_moex_onshore(from_date: str = "2022-06-01") -> dict:
-    """分页抓取 MOEX 在岸 CNYRUB 日线收盘, 写入 SQLite moex_rates 表。"""
+def fetch_moex_onshore(from_date: str | None = None) -> dict:
+    """分页抓取 MOEX 在岸 CNYRUB 日线收盘, 写入 SQLite moex_rates 表。
+
+    from_date 默认取 DB 已有最新日期(增量, 通常 1-2 页), 只有表空时才全量。
+    网络超时 8s, 失败快速返回不拖慢启动。
+    """
     from app.data import store
+    import datetime as _dt
     store.init_db()
     _ensure_table()
+
+    # 增量起点: 表内最新日期的次日; 表空才全量
+    if from_date is None:
+        last_d = store.last_moex_date()
+        if last_d:
+            d = _dt.date.fromisoformat(last_d) + _dt.timedelta(days=1)
+            from_date = d.isoformat()
+        else:
+            from_date = "2022-06-01"
 
     rows = []
     start = 0
@@ -34,7 +48,7 @@ def fetch_moex_onshore(from_date: str = "2022-06-01") -> dict:
         url = f"{_BASE}?from={from_date}&interval=24&iss.meta=off&start={start}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         try:
-            d = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            d = json.loads(urllib.request.urlopen(req, timeout=8).read())
         except Exception as e:  # noqa: BLE001
             log.warning("MOEX 抓取失败: %s", e)
             break

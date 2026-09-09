@@ -122,6 +122,12 @@ def last_oil_date() -> str | None:
     return row["d"]
 
 
+def last_moex_date() -> str | None:
+    with connect() as conn:
+        row = conn.execute("SELECT MAX(date) AS d FROM moex_rates").fetchone()
+    return row["d"]
+
+
 def load_oil() -> pd.DataFrame:
     with connect() as conn:
         df = pd.read_sql_query(

@@ -82,7 +82,8 @@ def cmd_calibrate(_):
 
 def cmd_serve(args):
     store.init_db()
-    # 启动时始终同步最新数据(不跳过)
+    # 启动时同步最新数据(数据源无更新时 ~2s 内完成, 不拖慢)
+    prev_last = store.last_date()
     print(json.dumps(fetcher.sync(), ensure_ascii=False))
     print(json.dumps(fetcher.fetch_oil_prices(), ensure_ascii=False))
     from app.data.news import fetch_news; fetch_news()
@@ -90,15 +91,20 @@ def cmd_serve(args):
     from app.data.moex_rates import fetch_moex_onshore
     try: fetch_moex_onshore()
     except Exception as e: print("MOEX 抓取跳过:", e)
-    # 启动时始终重跑回测+校准+预测(确保数据新鲜)
-    from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
-    df, oil_df, sent_df, rate_df = _load_all()
-    dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-    with open(config.DIRECTION_JSON, "w", encoding="utf-8") as f:
-        json.dump(dir_rep, f, ensure_ascii=False, indent=1)
-    calibrate_moex_z(df, oil_df, sent_df, rate_df)
-    from app import forecast as fc
-    fc.save_forecasts(df, dir_rep, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+    # 仅在"数据有新增"或"产物缺失"时重跑回测+校准+预测, 否则跳过(秒启动)
+    new_last = store.last_date()
+    if (new_last != prev_last or not config.DIRECTION_JSON.exists()
+            or not config.FORECAST_JSONS.get(7).exists()):
+        from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
+        df, oil_df, sent_df, rate_df = _load_all()
+        dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+        with open(config.DIRECTION_JSON, "w", encoding="utf-8") as f:
+            json.dump(dir_rep, f, ensure_ascii=False, indent=1)
+        calibrate_moex_z(df, oil_df, sent_df, rate_df)
+        from app import forecast as fc
+        fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+    else:
+        log.info("数据无更新, 跳过回测(产物已最新)")
     from app.web.server import create_app
     app = create_app()
     # 启动内置每日自动更新调度器: 系统自带更新能力, 不依赖外部调度
