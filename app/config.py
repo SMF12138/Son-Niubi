@@ -5,7 +5,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "rates.db"
-BACKTEST_JSON = DATA_DIR / "backtest_result.json"
 FORECAST_7_JSON = DATA_DIR / "forecast_7.json"
 FORECAST_30_JSON = DATA_DIR / "forecast_30.json"
 FORECAST_60_JSON = DATA_DIR / "forecast_60.json"
@@ -30,11 +29,8 @@ N_HORIZONS = [7, 30, 60, 90]
 
 # ---- 回测参数 ----
 MIN_TRAIN = 300       # 窗口起点前至少需要的历史行数
-TRAIN_WINDOW = 800    # 滚动训练窗口行数(适当扩大)
-REFIT_STRIDE = 10     # 每 N 个交易日评估一个窗口(同时重训)
-EWMA_DECAY = 0.98     # 成员历史命中率的指数衰减
-ENS_POWER = 8         # 命中率 -> 集成权重的锐化指数
-ENABLE_HGB = False    # M3H 梯度提升成员开关(逐窗口重训太慢,默认关闭)
+TRAIN_WINDOW = 800    # 滚动训练窗口行数
+REFIT_STRIDE = 10     # 每 N 个交易日评估一个窗口
 
 # ---- Web ----
 HOST = "127.0.0.1"

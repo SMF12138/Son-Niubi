@@ -5,7 +5,6 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from app import config
 from app.forecast import load_forecast
-from app.backtest.engine import load_report
 from app.data import store
 
 
@@ -32,23 +31,6 @@ def create_app() -> Flask:
             "usd": [None if pd.isna(v) else float(v) for v in tail["usd_rub"]],
             "source_counts": _source_counts(),
         })
-
-    @app.get("/api/forecast")
-    def api_forecast():
-        n = request.args.get("n", default=30, type=int)
-        if n not in config.N_HORIZONS:
-            return jsonify({"error": f"n 必须是 {config.N_HORIZONS}"}), 400
-        fc = load_forecast(n)
-        if fc is None:
-            return jsonify({"error": "预测产物不存在,请运行 python -m app.cli forecast"}), 503
-        return jsonify(fc)
-
-    @app.get("/api/backtest")
-    def api_backtest():
-        rep = load_report()
-        if rep is None:
-            return jsonify({"error": "回测产物不存在,请运行 python -m app.cli backtest"}), 503
-        return jsonify(rep)
 
     @app.get("/api/direction")
     def api_direction():
@@ -129,7 +111,7 @@ def create_app() -> Flask:
         # 历史
         hist = [{"date": d.date().isoformat(), "rate": float(v)}
                 for d, v in zip(df.index, df["cny_rub"])]
-        # ---- 预测投影: 以方向模型(唯一有方向验证的模型)为准。 ----
+        # ---- 预测投影: 以方向模型为准。 ----
         # 不再使用 ensemble 曲线作为“方向预测”。 ensemble 是点位见顶模型,
         # 从未在“涨跌方向”维度验证, 用它当方向制造了伪矛盾。
         # 投影 = 方向结论(direction) × 该信号历史上的实测幅度分布(诚实、无虚构)。

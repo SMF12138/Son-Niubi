@@ -1,9 +1,6 @@
-# Son Niubi — 人民币兑卢布方向 & 见顶日预测仪表盘
+# Son Niubi — 人民币兑卢布方向预测仪表盘
 
-本地网页仪表盘：基于俄罗斯央行（CBR）官方日牌价 + 莫斯科交易所（MOEX）在岸成交价，预测 **1 人民币 = ? 卢布** 汇率的：
-
-1. **未来涨跌方向**（7 / 30 / 60 / 90 交易日）—— 核心能力，经严格 walk-forward 回测验证；
-2. **见顶日**（窗口内哪天达到最高点）—— 辅助展示，天花板较低（见「诚实边界」）。
+本地网页仪表盘：基于俄罗斯央行（CBR）官方日牌价 + 莫斯科交易所（MOEX）在岸成交价，预测 **1 人民币 = ? 卢布** 汇率的未来涨跌方向（7 / 30 / 60 / 90 交易日）。
 
 页面如实展示真实回测命中率，并与基线并列对照，不虚标。**本项目不构成投资建议。**
 
@@ -58,11 +55,11 @@
 
 ---
 
-## 见顶日预测（EnsemblePeak · 辅助）
+## 见顶日预测（已废弃）
 
-见顶日预测由 `app/backtest/engine.py` 的 walk-forward 集成实现（M0-常数 / M1-阻尼趋势 / M2-ETS / M3R-岭回归 / ENS-集成），命中 = |p̂ − p*| ≤ tol，报告 ±0/±1/±2 三档 + 均匀随机基线。
+`app/backtest/engine.py` 实现了见顶日 walk-forward 回测引擎（M0-常数 / M1-阻尼趋势 / M2-ETS / M3R-岭回归 / ENS-集成），但**该引擎从未接入生产链路**——`cmd_backtest` 和 scheduler 只调方向回测（`moex_dir.run_direction_backtest`），不调见顶回测。
 
-> ⚠️ **当前状态**：见顶回测引擎（`engine.run_backtest` / `save_report`）**未接入生产链路**，`data/backtest_result.json` 不会自动生成，`/api/backtest` 端点会返回 503。前端仪表盘展示的价格路径由 `forecast.compute_forecast`（集成成员实时重训）生成，方向结论以 `direction` 字段为准。
+`forecast.compute_forecast()` 会输出一个 `peak` 字段（ensemble 集成的最值点），但**无回测验证、无准确率数据**。`/api/backtest` 端点恒返回 503。前端仪表盘展示的价格路径来自 `/api/predict` 的方向投影（与 ensemble peak 无关）。
 
 ---
 
@@ -91,7 +88,7 @@
 
 ## 页面内容
 
-- KPI 卡：当前汇率与日涨跌、7/30 日预测见顶日期、方向命中率、信号来源、数据截止日。
+- KPI 卡：当前汇率与日涨跌、方向命中率、信号来源、数据截止日。
 - 主图：历史实线 + 未来预测（方向投影 + 喇叭口不确定性带）。
 - 方向表：全样本 / MOEX 期 / MOEX 高置信 命中率。
 - 健康卡：MOEX 信号滚动命中率监控。
@@ -114,8 +111,8 @@ app/data/features.py     因果特征（动量/波动/RSI/油价/情绪/利率�
 app/data/{cbr_rates,news,calendar}.py  利率 / 新闻情绪 / 交易日历
 app/models/moex_dir.py   MoexDirectionPredictor（生产方向模型 + 动态校准）
 app/models/meanrev_dir.py 线性合成均值回复（无 MOEX 时 fallback）
-app/models/*             集成成员（见顶）+ 基线
-app/backtest/engine.py   见顶 walk-forward 引擎（当前未接入生产）
+app/models/*             集成成员（见顶，未接入生产）+ 基线
+app/backtest/engine.py   见顶 walk-forward 引擎（未接入生产，死代码）
 app/forecast.py          当前时点预测（价格路径 + 方向）→ forecast_*.json
 app/web/server.py + static/  Flask API + 前端仪表盘
 tests/                   单测
@@ -132,7 +129,7 @@ scripts/                 运维脚本
 
 ## 诚实边界
 
-- 方向预测超越随机是**微弱但真实**的（全样本 +4 点，高置信/长窗更强）。见顶日精度天花板低，作辅助展示。
+- 方向预测超越随机是**微弱但真实**的（全样本 +4 点，高置信/长窗更强）。
 - 方向（direction）与价格路径（ensemble）是两个独立模型，可能不一致——这是设计，非 bug；对外结论以方向模型为准。
 - 新闻情绪特征覆盖率低（约 5% 交易日有数据），贡献有限但非零。
 - **准确率天花板已确认**：5 轮独立验证（参数调优 / XGBoost / 每日信号 / 信号组合 / 系统审计）确认 56-68% 为当前数据源下的真实上限。

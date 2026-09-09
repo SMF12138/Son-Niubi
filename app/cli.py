@@ -1,4 +1,4 @@
-"""命令入口(精简版):跳过慢速见顶回测,只跑方向回测+预测+serve。"""
+"""命令入口: fetch | backtest | calibrate | forecast | serve"""
 import argparse, json, logging, webbrowser, sys, time
 from app import config
 from app.data import fetcher, store
@@ -59,29 +59,14 @@ def cmd_backtest(_):
 
 def cmd_forecast(_):
     from app import forecast as fc
-    from app.backtest import engine
-    from app.models.moex_dir import MoexDirectionPredictor
-    from app.data.moex_rates import load_moex, load_moex_hl
-    import numpy as np
-    from app.data.features import build_features
     df, oil_df, sent_df, rate_df = _load_all()
-    report = engine.load_report()  # 用回测推导的模型权重
-    fc.save_forecasts(df, report, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-    lp = np.log(df["cny_rub"].to_numpy(float))
-    Fdf = build_features(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-    valid = np.where(Fdf.notna().all(axis=1).to_numpy())[0]
-    ctx = {"lp": lp, "i": len(lp)-1, "Xf": Fdf.to_numpy(float), "valid": valid, "feat_names": list(Fdf.columns)}
-    predictor = MoexDirectionPredictor()
-    predictor.attach_moex([d.strftime("%Y-%m-%d") for d in df.index], lp, load_moex(), hl_map=load_moex_hl())
+    fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
     for N in config.N_HORIZONS:
         f = fc.load_forecast(N)
         if not f: continue
-        pk = f["peak"]; dr = predictor.predict_direction(ctx, N); f["direction"] = dr
-        path = config.FORECAST_JSONS.get(N)
-        if path:
-            with open(path, "w", encoding="utf-8") as fh: json.dump(f, fh, ensure_ascii=False, indent=1)
-        arrow = "↑涨" if dr["prediction"]==1 else "↓跌"
-        print(f"N={N}: 见顶=第{pk['day']}日({pk['date']})@{pk['level']}; 方向={arrow} 置信度{dr['confidence']*100:.0f}%")
+        dr = f.get("direction", {})
+        arrow = "↑涨" if dr.get("prediction") == 1 else "↓跌"
+        print(f"N={N}: 方向={arrow} 置信度{dr.get('confidence', 0)*100:.0f}%")
     return 0
 
 
