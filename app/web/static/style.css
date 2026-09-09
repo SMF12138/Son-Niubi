@@ -107,18 +107,20 @@ body {
   justify-content: space-between;
 }
 .brand { display: flex; align-items: center; gap: 14px; }
+.brand-seals { display: flex; gap: 4px; }
 .brand-seal {
-  width: 38px; height: 38px;
+  width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--accent);
-  color: var(--bg-card);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 900;
-  border-radius: 4px;
-  transform: rotate(-2deg);
+  border-radius: 3px;
   box-shadow: 1px 1px 0 var(--border-ornament);
   line-height: 1;
+  font-family: 'Noto Serif SC', 'STSong', 'SimSun', serif;
 }
+.brand-seal.s1 { background: var(--accent); color: var(--bg-card); transform: rotate(-2deg); }
+.brand-seal.s2 { background: var(--gold); color: var(--bg-card); transform: rotate(1deg); }
+.brand-seal.s3 { background: var(--text-dim); color: var(--bg-card); transform: rotate(-1deg); }
 .brand-text { display: flex; flex-direction: column; }
 .brand-name {
   font-size: 17px;
