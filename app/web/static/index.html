@@ -3,50 +3,77 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>人民币兑卢布预测 · CNY/RUB</title>
+  <title>CNY/RUB · 人民币兑卢布预测</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <header>
-    <h1>人民币兑卢布走势预测</h1>
-    <p class="sub">1 元人民币能换多少卢布 · 未来走势与准确率一览</p>
-  </header>
-
-  <!-- 核心预测卡(可轮播切换时长) -->
-  <section class="hero" id="hero">
-    <div class="hero-loading">加载中…</div>
-  </section>
-
-  <!-- 主预测图 -->
-  <section class="panel">
-    <div class="panel-head">
-      <h2>汇率走势与预测</h2>
-      <div class="toggles">
-        <label class="switch">
-          <input type="checkbox" id="histToggle" checked />
-          <span>显示历史</span>
-        </label>
-        <div class="rangectl" id="mainRange">
-          <button data-hor="7" class="rgbtn active">未来7天</button>
-          <button data-hor="30" class="rgbtn">未来30天</button>
-          <button data-hor="60" class="rgbtn">未来60天</button>
-          <button data-hor="90" class="rgbtn">未来90天</button>
-        </div>
+  <!-- 顶部导航条 -->
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-text">CNY/RUB</span>
+        <span class="brand-sub">人民币兑卢布预测</span>
       </div>
+      <div class="topbar-status" id="topbarStatus"></div>
     </div>
-    <div id="mainChart" class="chart"></div>
-    <p class="hint">蓝线为<b>历史真实汇率</b>，虚线为<b>未来预测</b>（起点标「今天」）。预测线呈<b>近窄远宽的喇叭口</b>：时间越远不确定性越大。把鼠标移到预测线上，可看到<b>这条预测的历史准确率</b>与可能区间。关闭「显示历史」可全屏聚焦未来曲线。</p>
-  </section>
+  </nav>
 
-  <!-- 系统健康度 -->
-  <section class="panel">
-    <h2>系统健康度</h2>
-    <div id="healthCard" class="health-card">加载中…</div>
-    <p class="hint">健康度反映预测模型当前的<b>实际有效程度</b>。卢布汇率受政策与资本管制影响，
-      模型依赖「市场价领先官方价」这一规律；若该规律因政策变化而减弱，健康度会下降并预警。</p>
-  </section>
+  <main class="container">
+    <!-- 核心预测卡 -->
+    <section class="hero-card" id="hero">
+      <div class="hero-loading">
+        <div class="loader"></div>
+        <span>加载预测数据…</span>
+      </div>
+    </section>
 
-  <footer id="foot"></footer>
+    <!-- 时长切换 -->
+    <div class="horizon-bar" id="horizonBar">
+      <button data-hor="7" class="hz-btn active">7天</button>
+      <button data-hor="30" class="hz-btn">30天</button>
+      <button data-hor="60" class="hz-btn">60天</button>
+      <button data-hor="90" class="hz-btn">90天</button>
+    </div>
+
+    <!-- 主预测图 -->
+    <section class="card chart-card">
+      <div class="card-header">
+        <h2>汇率走势与预测</h2>
+        <label class="toggle">
+          <input type="checkbox" id="histToggle" checked />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">历史</span>
+        </label>
+      </div>
+      <div id="mainChart" class="chart"></div>
+      <p class="chart-hint">
+        蓝线 = <b>历史真实汇率</b> · 虚线 = <b>未来预测</b> · 阴影带 = 不确定性区间（越远越宽）
+      </p>
+    </section>
+
+    <!-- 系统健康度 -->
+    <section class="card health-card">
+      <h2>模型健康度</h2>
+      <div id="healthContent" class="health-body">加载中…</div>
+    </section>
+
+    <!-- 不确定性说明 -->
+    <section class="card uncert-card" id="uncertSection" style="display:none">
+      <details>
+        <summary>
+          <span class="uncert-badge" id="uncertBadge"></span>
+          <span class="uncert-title" id="uncertTitle"></span>
+          <span class="uncert-chevron">›</span>
+        </summary>
+        <div class="uncert-body" id="uncertBody"></div>
+      </details>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>本页为数据分析展示，不构成任何投资建议。预测基于历史规律，无法保证未来表现。</p>
+  </footer>
 
   <script src="/static/vendor/echarts.min.js"></script>
   <script src="/static/app.js"></script>
