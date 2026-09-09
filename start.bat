@@ -27,7 +27,7 @@ start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 echo [WAIT] warming up, about 30 seconds...
 ping -n 31 127.0.0.1 >nul
 echo [DONE] launching desktop pet widget...
-start "" ".venv\Scripts\pythonw.exe" -c "from floating_pet import FloatingPet; FloatingPet().run()"
+start /min "" cmd /c "cd /d "%~dp0" && launch_widget.bat"
 echo [DONE] opening web page
 start "" "http://127.0.0.1:8000"
 echo.

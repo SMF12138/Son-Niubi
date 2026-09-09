@@ -1,36 +1,34 @@
-"""桌面宠物浮窗：手绘角色 + 预测数据卡片。
+"""桌面宠物浮窗：真实图片 + 交互 + 语音。
 
-tkinter 透明背景窗口，左侧 Canvas 手绘黄色独眼小萌物（idle/up/down），
-右侧显示方向+置信度+汇率。每 60s 读 forecast_7.json 刷新。
+- 纯黑背景，原图黑底直接嵌入（不抠图）
+- 点击角色切换 形态一/形态二
+- 切到形态一播放语音（右上 🔊 可静音）
+- 右上 ✕ 关闭桌宠
+- 每 5s 读 forecast_7.json 刷新数据
 """
 import json
-import math
-import sys
+import subprocess
+import threading
 import tkinter as tk
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FORECAST_FILE = ROOT / "data" / "forecast_7.json"
+FORM1 = ROOT / "data" / "pet" / "form1.png"  # 侧面穿T恤
+FORM2 = ROOT / "data" / "pet" / "form2.png"  # 正面无衣
+VOICE_FILE = Path(r"C:\Users\86177\Desktop\语音.m4a")
+VOICE_SCRIPT = ROOT / "play_voice.ps1"
 
-# 配色
-BG_DARK = "#1A1410"
-BG_CARD = "#2A231A"
-TEXT = "#E8DFD0"
-TEXT_DIM = "#8A7E6E"
-GOLD = "#D4A843"
-UP_COLOR = "#E8615A"
-DOWN_COLOR = "#5CB88A"
-BODY_YELLOW = "#F5D547"
-BODY_DARK = "#E8C83A"
-BELLY_WHITE = "#FFF8E8"
-EYE_GREEN = "#2D8B57"
-EYE_BLACK = "#1A1210"
-MOUTH_PINK = "#E85A6A"
-ARM_YELLOW = "#EDCA3C"
+# 配色：纯黑背景（原图黑底融为一体）
+BG = "#000000"
+TEXT_HI = "#FFFFFF"      # 主文字（白）
+TEXT_MD = "#D8D0C0"      # 次级
+TEXT_DIM = "#8A8478"     # 弱
+UP_COLOR = "#FF6B5E"     # 涨（亮红橙）
+DOWN_COLOR = "#35D0A0"   # 跌（亮绿）
 
-# 动画帧率
-FPS = 4
-FRAME_MS = 1000 // FPS
+# 单次图片显示的像素目标高度
+IMG_TARGET_H = 150
 
 
 class FloatingPet:
@@ -39,169 +37,148 @@ class FloatingPet:
         self.root.title("CNY/RUB 桌宠")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.95)
-        self.root.configure(bg=BG_DARK)
+        self.root.configure(bg=BG)
 
-        # 窗口尺寸与位置（屏幕右下角）
+        # 尺寸（留出右侧数据区）
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.root.geometry(f"320x160+{sw - 340}+{sh - 200}")
+        self.W = 330
+        self.H = 190
+        self.root.geometry(f"{self.W}x{self.H}+{sw - self.W - 30}+{sh - self.H - 60}")
 
-        # Canvas（透明背景绘制）
-        self.canvas = tk.Canvas(self.root, width=320, height=160,
-                                bg=BG_DARK, highlightthickness=0)
+        # Canvas
+        self.canvas = tk.Canvas(self.root, width=self.W, height=self.H,
+                                bg=BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
         # 状态
-        self.mood = "idle"  # idle / up / down
-        self.frame = 0
+        self.show_form1 = False  # False=形态二(正面), True=形态一(侧面穿T恤)
+        self.mute = False
         self.data = {}
         self.last_mtime = 0
         self._drag_data = {"x": 0, "y": 0}
+        self._img_refs = []  # 防 GC
 
-        # 绑定事件
-        self.canvas.bind("<Button-1>", self._start_drag)
+        # 加载图片
+        self.img_form1 = None
+        self.img_form2 = None
+        self._load_images()
+
+        # 事件绑定
+        self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<B1-Motion>", self._do_drag)
         self.canvas.bind("<Double-Button-1>", self._open_browser)
 
-        # 初始绘制
+        # 绘制 + 定时刷新
         self._draw()
-
-        # 定时刷新
         self._refresh_data()
-        self._animate()
 
-    def _start_drag(self, e):
-        self._drag_data["x"] = e.x
-        self._drag_data["y"] = e.y
+    def _load_images(self):
+        """加载两张图，各自缩放到 IMG_TARGET_H 高。"""
+        for attr, path, key in [("img_form1", FORM1, "form1"),
+                                ("img_form2", FORM2, "form2")]:
+            if path.exists():
+                full = tk.PhotoImage(file=str(path))
+                scale = max(1, full.height() // IMG_TARGET_H)
+                img = full.subsample(scale)
+                setattr(self, attr, img)
+                self._img_refs.append(img)
+                print(f"[pet] {key}: {full.width()}x{full.height()} → "
+                      f"{img.width()}x{img.height()}")
+            else:
+                setattr(self, attr, None)
+
+    # ---- 交互 ----
+    def _on_click(self, e):
+        # ✕ 关闭
+        if self.W - 26 < e.x < self.W - 4 and 4 < e.y < 26:
+            self.root.destroy()
+            return
+        # 🔊/🔇 静音
+        if self.W - 52 < e.x < self.W - 30 and 4 < e.y < 26:
+            self.mute = not self.mute
+            self._draw()
+            return
+        # 左侧角色区 → 切换形态
+        if e.x < 170:
+            self.show_form1 = not self.show_form1
+            if self.show_form1 and not self.mute:
+                self._play_voice()
+            self._draw()
+            return
+        # 其他 → 拖拽
+        self._drag_data = {"x": e.x, "y": e.y}
 
     def _do_drag(self, e):
         dx = e.x - self._drag_data["x"]
         dy = e.y - self._drag_data["y"]
-        x = self.root.winfo_x() + dx
-        y = self.root.winfo_y() + dy
-        self.root.geometry(f"+{x}+{y}")
+        self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
 
     def _open_browser(self, e):
         import webbrowser
         webbrowser.open("http://127.0.0.1:8000")
 
+    # ---- 语音 ----
+    def _play_voice(self):
+        """切形态一播放语音，不阻塞 UI。"""
+        if not VOICE_FILE.exists() or not VOICE_SCRIPT.exists():
+            return
+
+        def _play():
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                     "-File", str(VOICE_SCRIPT), str(VOICE_FILE)],
+                    timeout=15, capture_output=True)
+            except Exception:
+                pass
+        threading.Thread(target=_play, daemon=True).start()
+
+    # ---- 数据 ----
     def _refresh_data(self):
-        """读取 forecast JSON，更新数据和情绪状态。"""
         try:
             if FORECAST_FILE.exists():
                 mtime = FORECAST_FILE.stat().st_mtime
                 if mtime != self.last_mtime:
                     self.data = json.loads(FORECAST_FILE.read_text(encoding="utf-8"))
                     self.last_mtime = mtime
-                    d = self.data.get("direction", {})
-                    pred = d.get("prediction", 0)
-                    self.mood = "up" if pred == 1 else "down"
         except Exception:
             pass
-        self.root.after(5000, self._refresh_data)  # 5s 检查一次文件
-
-    def _animate(self):
-        """动画帧切换。"""
-        self.frame = (self.frame + 1) % 4
+        self.root.after(5000, self._refresh_data)
         self._draw()
-        self.root.after(FRAME_MS, self._animate)
 
+    # ---- 绘制 ----
     def _draw(self):
-        """绘制全部内容。"""
         c = self.canvas
         c.delete("all")
 
-        # 左侧：角色
-        self._draw_character(70, 85)
+        # 角色图片（左，垂直居中）
+        img = self.img_form1 if self.show_form1 else self.img_form2
+        if img:
+            iw, ih = img.width(), img.height()
+            ix = 5 + iw // 2
+            iy = self.H // 2
+            c.create_image(ix, iy, image=img)
 
-        # 右侧：数据卡片
-        self._draw_data_card(155, 10)
+        # 分隔线（角色区 / 数据区）
+        c.create_line(172, 8, 172, self.H - 8, fill="#2A2A2A", width=1)
 
-    def _draw_character(self, cx, cy):
-        """在 (cx, cy) 为中心绘制角色。"""
+        # 数据（右）
+        self._draw_data(184, 20)
+
+        # 右上角控制按钮
+        c.create_text(self.W - 15, 15, text="✕", fill="#666",
+                      font=("Arial", 13, "bold"))
+        c.create_text(self.W - 41, 15, text="🔇" if self.mute else "🔊",
+                      fill="#888", font=("Arial", 11))
+
+        # 底部形态标签
+        label = "点击切换形态" if not self.data else ("形态一·穿T恤" if self.show_form1 else "形态二·正面")
+        c.create_text(10, self.H - 6, anchor="sw", text=label,
+                      fill="#3A3A3A", font=("Microsoft YaHei", 8))
+
+    def _draw_data(self, x, y):
         c = self.canvas
-        mood = self.mood
-        f = self.frame
-
-        # 呼吸动画：身体轻微上下浮动
-        breath = math.sin(f * math.pi / 2) * 2
-
-        # 身体（黄色圆）
-        body_r = 42
-        c.create_oval(cx - body_r, cy - body_r + breath,
-                       cx + body_r, cy + body_r + breath,
-                       fill=BODY_YELLOW, outline=BODY_DARK, width=2)
-
-        # 白肚皮（下方椭圆）
-        belly_w, belly_h = 28, 22
-        c.create_oval(cx - belly_w, cy + 5 + breath,
-                       cx + belly_w, cy + 5 + belly_h + breath,
-                       fill=BELLY_WHITE, outline="")
-
-        # 手臂（右侧小圆）
-        arm_x = cx + body_r - 8
-        arm_y = cy + 5 + breath
-        arm_r = 12
-        c.create_oval(arm_x - arm_r, arm_y - arm_r,
-                       arm_x + arm_r, arm_y + arm_r,
-                       fill=ARM_YELLOW, outline=BODY_DARK, width=1)
-
-        # 眼睛
-        eye_x, eye_y = cx - 6, cy - 10 + breath
-        eye_r = 14
-        # 白底
-        c.create_oval(eye_x - eye_r, eye_y - eye_r,
-                       eye_x + eye_r, eye_y + eye_r,
-                       fill="white", outline=BODY_DARK, width=1)
-        # 绿虹膜
-        iris_r = 10
-        c.create_oval(eye_x - iris_r, eye_y - iris_r,
-                       eye_x + iris_r, eye_y + iris_r,
-                       fill=EYE_GREEN, outline="")
-        # 黑瞳孔
-        pupil_r = 5
-        c.create_oval(eye_x - pupil_r, eye_y - pupil_r,
-                       eye_x + pupil_r, eye_y + pupil_r,
-                       fill=EYE_BLACK, outline="")
-        # 高光
-        hl_x, hl_y = eye_x - 3, eye_y - 4
-        c.create_oval(hl_x - 2, hl_y - 2, hl_x + 2, hl_y + 2,
-                       fill="white", outline="")
-
-        # 嘴巴
-        mouth_y = cy + 18 + breath
-        if mood == "up":
-            # 开心：张开的笑嘴
-            c.create_arc(cx - 10, mouth_y - 6, cx + 10, mouth_y + 8,
-                         start=200, extent=140, style="arc",
-                         outline=MOUTH_PINK, width=2)
-            c.create_oval(cx - 5, mouth_y, cx + 5, mouth_y + 6,
-                          fill=MOUTH_PINK, outline="")
-        elif mood == "down":
-            # 难过：小扁嘴
-            c.create_arc(cx - 8, mouth_y + 4, cx + 8, mouth_y - 2,
-                         start=20, extent=140, style="arc",
-                         outline=MOUTH_PINK, width=2)
-        else:
-            # idle：微笑弧
-            c.create_arc(cx - 10, mouth_y - 8, cx + 10, mouth_y + 4,
-                         start=200, extent=140, style="arc",
-                         outline=MOUTH_PINK, width=2)
-
-    def _draw_data_card(self, x, y):
-        """右侧数据卡片。"""
-        c = self.canvas
-        w, h = 155, 140
-
-        # 卡片背景
-        c.create_rectangle(x, y, x + w, y + h,
-                           fill=BG_CARD, outline="#3D342A", width=1)
-
-        # 分割线
-        c.create_line(x + 10, y + h - 28, x + w - 10, y + h - 28,
-                       fill="#3D342A", width=1)
-
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
         conf = d.get("confidence", 0.5)
@@ -211,39 +188,39 @@ class FloatingPet:
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         arrow = "▲ 涨" if pred == 1 else "▼ 跌"
-        conf_pct = f"{conf * 100:.0f}%"
+        pct = f"{conf * 100:.0f}%"
+        as_of = self.data.get("as_of", "")[:10]
 
-        # 方向 + 置信度
-        c.create_text(x + 12, y + 18, anchor="w",
-                       text=arrow, fill=color,
-                       font=("Microsoft YaHei", 16, "bold"))
-        c.create_text(x + w - 12, y + 18, anchor="e",
-                       text=conf_pct, fill=TEXT,
-                       font=("Georgia", 14, "bold"))
+        # 无数据提示
+        if not self.data:
+            c.create_text(x, y + 40, anchor="w", text="等待数据…",
+                          fill=TEXT_DIM, font=("Microsoft YaHei", 11))
+            return
 
+        # 方向（大，亮）
+        c.create_text(x, y, anchor="w", text=arrow, fill=color,
+                       font=("Microsoft YaHei", 26, "bold"))
+        # 把握度
+        c.create_text(x, y + 38, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
+                       font=("Microsoft YaHei", 15, "bold"))
         # 汇率
         if rate:
-            c.create_text(x + 12, y + 52, anchor="w",
-                           text=f"1元 = {rate:.2f}卢布", fill=TEXT_DIM,
-                           font=("Microsoft YaHei", 11))
-
+            c.create_text(x, y + 66, anchor="w",
+                           text=f"1元 = {rate:.2f} 卢布", fill=TEXT_MD,
+                           font=("Microsoft YaHei", 12))
         # 信号
-        sig_short = {"moex_dev": "MOEX偏离", "mean_rev": "均值回复",
-                     "meanrev_strong": "均值回复强", "meanrev_medium": "均值回复"}.get(signal, signal)
-        c.create_text(x + 12, y + 76, anchor="w",
-                       text=f"信号: {sig_short}·{confirms}确认", fill=TEXT_DIM,
+        sig = {"moex_dev": "MOEX偏离", "mean_rev": "均值回复",
+               "meanrev_strong": "均值回复强"}.get(signal, signal)
+        c.create_text(x, y + 92, anchor="w",
+                       text=f"{sig}·{confirms}确认", fill=TEXT_DIM,
                        font=("Microsoft YaHei", 9))
-
-        # 截至日期
-        as_of = self.data.get("as_of", "")[:10]
-        c.create_text(x + 12, y + h - 12, anchor="w",
-                       text=f"截至: {as_of}", fill="#5E5448",
-                       font=("Georgia", 8))
+        # 日期
+        c.create_text(x, y + 114, anchor="w", text=f"截至 {as_of}",
+                       fill="#4A4A4A", font=("Microsoft YaHei", 9))
 
     def run(self):
         self.root.mainloop()
 
 
 if __name__ == "__main__":
-    pet = FloatingPet()
-    pet.run()
+    FloatingPet().run()
