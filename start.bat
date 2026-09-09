@@ -26,10 +26,12 @@ echo [START] launching service in background...
 start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 echo [WAIT] warming up, about 30 seconds...
 ping -n 31 127.0.0.1 >nul
+echo [DONE] launching desktop pet widget...
+start "" ".venv\Scripts\pythonw.exe" -c "from floating_pet import FloatingPet; FloatingPet().run()"
 echo [DONE] opening web page
 start "" "http://127.0.0.1:8000"
 echo.
-echo Service is running in background. Auto-updates daily at 09:00.
-echo Closing this window will NOT stop the service. To stop, run stop.bat
+echo Service + widget running. Auto-updates daily at 09:00.
+echo Closing this window will NOT stop them. To stop, run stop.bat
 ping -n 6 127.0.0.1 >nul
 exit /b 0

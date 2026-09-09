@@ -111,14 +111,21 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_widget(_):
+    from floating_pet import FloatingPet
+    pet = FloatingPet()
+    pet.run()
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fetch"); sub.add_parser("backtest"); sub.add_parser("forecast")
-    sub.add_parser("calibrate")
+    sub.add_parser("calibrate"); sub.add_parser("widget")
     sp = sub.add_parser("serve"); sp.add_argument("--no-browser", action="store_true")
     args = p.parse_args()
     return {"fetch":cmd_fetch,"backtest":cmd_backtest,"forecast":cmd_forecast,
-            "calibrate":cmd_calibrate,"serve":cmd_serve}[args.cmd](args)
+            "calibrate":cmd_calibrate,"serve":cmd_serve,"widget":cmd_widget}[args.cmd](args)
 
 if __name__ == "__main__":
     sys.exit(main())
