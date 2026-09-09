@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Data artifacts (大文件/可重建)
+data/rates.db
+data/app.db
+data/*.json
+
+# Logs & temp
+logs/
+*.log
+tmp_*.txt
+serve_*.log
+
+# Keep placeholders
+!data/.gitkeep
