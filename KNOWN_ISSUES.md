@@ -1,6 +1,7 @@
-# Son NiuBi 全方位系统审计报告
-> 生成时间：2026-09-10 · 审计范围：模块/数据/动态性/冗余/准确率
+# KNOWN_ISSUES — 已知问题清单（原系统审计报告）
+> 初次审计：2026-09-10 · 修复状态复核：2026-09-10
 > 审计方法：4 个并行探针 + 手动代码审查，覆盖全部 .py 文件
+> 每项标注当前状态：✅已修 / ❌未修 / ⚠️待决策。开发计划见 DEVELOPMENT.md。
 
 ---
 
@@ -17,27 +18,28 @@
 
 ## 二、CRITICAL（必须修复）
 
-### C1. forecast.py:103 — rate_df 被静默丢弃
+### C1. ✅已修 — forecast.py rate_df 被静默丢弃
 `save_forecasts()` 接收了 `rate_df` 参数但**没传给 `compute_forecast()`**。所有 4 个 horizon 的预测计算都没有关键利率特征。回测用的权重是在有 rate_df 时训练的，但预测时缺失了这个特征。
 - **影响**：预测结果比回测弱，权重失配
 - **修复**：forecast.py:103 加 `rate_df=rate_df`
 
-### C2. 新闻表无去重，无限增长
+### C2. ❌未修 — 新闻表无去重，无限增长
 `upsert_news()` 没有 `ON CONFLICT` 策略，每次 `fetch_news()` 都追加 ~500 行。当前 23500 行只有 217 个唯一日期（平均每日期 ~108 条重复）。scheduler 每天跑一次就多 500 行。
 - **影响**：DB 无限膨胀，查询变慢
 - **修复**：加 UNIQUE(date, title, source) + INSERT OR IGNORE
 
-### C3. 情绪评分质量极差
+### C3. ❌未修 — 情绪评分质量极差
 `_score_text()` 用 `set(re.findall(...))` 去重词频，"sanctions sanctions sanctions" 和 "sanctions" 得分相同。DB 统计：54% 得分=0.0，36.2%=-1.0，8.9%=+1.0——实质是三值 {-1, 0, +1}，信号分辨率极低。
 - **影响**：sentiment_7d 等特征 91% 的交易日为 0，对模型几乎是噪声
 - **修复**：改用词频加权或预训练情绪模型
 
-### C4. 方向说"跌"但价格投影"涨"——用户可见矛盾
+### C4. ⚠️已加说明 — 方向与价格投影可能不一致
+> forecast.py 已加 `model_note` 声明这是两个独立模型、以 direction 为准的设计意图。前端投影是否改为随方向走仍待产品决策。原描述：
 所有 4 个 horizon 的 forecast JSON 里：direction=prediction=0（看跌，68% 置信），但 ensemble_mid 价格路径全部上行（12.88→12.97/12.99/12.90/12.90）。前端 `/api/predict` 的投影曲线也是上行的。用户看到"看跌 68%"但图表画的是涨。
 - **影响**：用户直接看到自相矛盾的预测
 - **修复**：前端投影应以 direction 为准（跌则画下行路径），或明确标注"价格路径与方向模型独立"
 
-### C5. engine.run_backtest() + save_report() 完全孤立
+### C5. ⚠️仍成立/待决策 — engine 见顶回测完全孤立
 生产 pipeline（cli/scheduler）只调 `moex_dir.run_direction_backtest()`。`engine.py` 的 117 行 peak-day 回测 + save_report 永远不执行。`/api/backtest` 端点返回 503（因为 BACKTEST_JSON 从未被写入）。
 - **影响**：见顶预测的回测引擎完全失效，API 端点不可用
 - **修复**：二选一——要么删掉 engine.py 死代码，要么在 cli 里调用它
@@ -46,7 +48,8 @@
 
 ## 三、HIGH（应该修复）
 
-### H1. MacroDirectionPredictor 整个模块是死代码
+### H1. ✅已修 — MacroDirectionPredictor 死代码已删除
+> macro_dir.py 已删除，moex_dir.py 的 `_get_macro()` 已移除。原描述：
 `moex_dir.py:80-84` 的 `_get_macro()` 懒加载 `MacroDirectionPredictor`，但 **`_get_macro()` 从未被调用**。macro_dir.py（103 行）完全不参与任何执行路径。
 - **修复**：删除 macro_dir.py 和 moex_dir.py 里的 `_get_macro()`
 
@@ -54,7 +57,8 @@
 calibration.json：z>1.0 档准确率 64.5% **低于** z>0.5 档的 72.1%。高偏离反而不如中偏离准，说明校准表在该区间有噪声或分桶逻辑有坑。
 - **修复**：检查样本量是否足够（z>1.0 档可能样本太少导致方差大），考虑平滑
 
-### H3. 调度器当天失败不重试
+### H3. ✅已修 — 调度器失败重试
+> scheduler.py 已加 MAX_RETRIES=3 重试逻辑，成功后才置 last_run_date。原描述：
 scheduler.py:107 `last_run_date = now.date()` 在 `_run_update()` **之前**设置。如果 09:00 的更新因网络超时失败，当天不会重试，要等到明天。
 - **修复**：把 `last_run_date` 赋值移到 `_run_update()` 成功之后
 
@@ -128,17 +132,17 @@ meanrev_dir.py:57 `min(0.73 + strength * 0.02, 0.82)`——基线 73% 起步。�
 ## 七、修复优先级建议
 
 **第一批（影响数据正确性，应立即修）**：
-1. C1 — forecast.py 加 `rate_df=rate_df`（1 行改动）
-2. C2 — upsert_news 加去重（改 store.py）
-3. C3 — 情绪评分改用词频（改 news.py）
-4. C4 — 前端投影与方向对齐（改 server.py）
-5. H3 — 调度器重试逻辑（改 scheduler.py）
+1. ~~C1 — forecast.py 加 `rate_df=rate_df`~~ ✅已修
+2. C2 — upsert_news 加去重（改 store.py/news.py）—— ❌未修
+3. C3 — 情绪评分改用词频（改 news.py）—— ❌未修
+4. C4 — 前端投影与方向对齐（改 server.py）—— ⚠️待产品决策（已加说明）
+5. ~~H3 — 调度器重试逻辑~~ ✅已修
 
 **第二批（影响可靠性，本周修）**：
-6. H1 — 删除 macro_dir.py 死代码
-7. H4 — moex_rates.py 改 context manager
-8. H5 — MeanRev base_conf 校准
-9. H2 — 校准非单调性调查
+6. ~~H1 — 删除 macro_dir.py 死代码~~ ✅已修
+7. H4 — moex_rates.py 改 context manager —— ❌未修
+8. H5 — MeanRev base_conf 校准 —— ❌未修
+9. H2 — 校准非单调性调查 —— ❌未修
 
 **第三批（可维护性，有空时清理）**：
 10. M1-M12 中各项

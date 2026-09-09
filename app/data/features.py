@@ -102,13 +102,17 @@ def build_features(df: pd.DataFrame, oil_df: pd.DataFrame | None = None,
 
     # === 新闻情绪特征 ===
     if sentiment_df is not None and not sentiment_df.empty:
-        sent = sentiment_df["sentiment"].reindex(idx, method="ffill").fillna(0.0)
+        sent_raw = sentiment_df["sentiment"].reindex(idx, method="ffill")
+        # 标记:该日是否有新闻覆盖(0=无新闻, 1=有新闻)
+        F["sentiment_coverage"] = sent_raw.notna().astype(float)
+        sent = sent_raw.fillna(0.0)
         F["sentiment"] = sent
         F["sentiment_7d"] = sent.rolling(7, min_periods=1).mean()
         F["sentiment_30d"] = sent.rolling(30, min_periods=1).mean()
         F["sentiment_trend"] = F["sentiment_7d"] - F["sentiment_30d"]
     else:
-        for c in ["sentiment", "sentiment_7d", "sentiment_30d", "sentiment_trend"]:
+        for c in ["sentiment", "sentiment_7d", "sentiment_30d", "sentiment_trend",
+                   "sentiment_coverage"]:
             F[c] = 0.0
 
     # === CBR 关键利率特征 ===

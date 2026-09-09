@@ -23,16 +23,26 @@ _QUERIES = [
     "Russia+trade+China",
 ]
 
-# 金融/地缘政治情绪词典
+# 金融/地缘政治情绪词典(扩展版)
 _POSITIVE_WORDS = {
+    # 经济增长
     "agreement", "deal", "growth", "stable", "strong", "cooperation", "summit",
     "boost", "surge", "rally", "gain", "rise", "recovery", "improve", "positive",
     "support", "reform", "progress", "investment", "expand", "increase", "peace",
     "ceasefire", "negotiation", "dialogue", "partnership", "export", "revenue",
     "strengthen", "appreciate", "upbeat", "optimistic", "breakthrough",
     "profit", "boom", "rebound", "upturn", "bullish", "outperform",
+    # 汇率/货币
+    "ruble", "rouble", "appreciation", "hardening", "stabilize", "surplus",
+    "reserves", "intervention", "liquidity", "easing",
+    # 贸易/合作
+    "pipeline", "contract", "supply", "shipment", "import", "bilateral",
+    "corridor", "logistics", "pipeline", "grain", "fertilizer",
+    # 制裁缓和
+    "exemption", "waiver", "relief", "unfreeze", "lift", "ease",
 }
 _NEGATIVE_WORDS = {
+    # 制裁/冲突
     "sanction", "sanctions", "war", "crisis", "conflict", "ban", "restrict",
     "restrictions", "tariff", "crash", "collapse", "plunge", "slump", "decline",
     "fall", "drop", "loss", "risk", "threat", "attack", "escalation", "tension",
@@ -40,6 +50,15 @@ _NEGATIVE_WORDS = {
     "blockade", "strike", "invasion", "occupation", "retaliation", "deteriorate",
     "weaken", "depreciate", "pessimistic", "bearish", "volatile", "uncertainty",
     "debt", "deficit", "shortage", "curfew", "protest", "unrest",
+    # 汇率/货币
+    "devaluation", "depreciation", "capitalflight", "capitalcontrols",
+    "outflow", "conversion", "freeze", "seize", "confiscate",
+    # 地缘
+    "drone", "missile", "bombing", "frontline", "mobilization", "conscription",
+    "ceasefire", "ultimatum", "provocation", "reprisal",
+    # 经济下行
+    "default", "insolvency", "bankruptcy", "downgrade", "junk", "contagion",
+    "shutdown", "shortage", "hoarding", "rationing",
 }
 
 _REQ = requests.Session()
