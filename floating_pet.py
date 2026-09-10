@@ -99,20 +99,25 @@ class FloatingPet:
         self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
 
     def _play_voice(self):
-        """播放语音：直接起 PowerShell 进程（简单可靠）。"""
+        """播放语音：用系统默认播放器打开 m4a，1.5s 后关闭播放器窗口。"""
         if not VOICE_FILE.exists():
             return
-        # 静默启动，不阻塞 UI，不弹窗口
+        import os
         try:
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-                 f"Add-Type PresentationCore; $p=New-Object Media.MediaPlayer; "
-                 f"$p.Open([Uri]::new('{VOICE_FILE}')); Start-Sleep -Milliseconds 1500; "
-                 f"$p.Play(); Start-Sleep -Seconds 3; $p.Close()"],
-                creationflags=0x08000000,  # CREATE_NO_WINDOW
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            os.startfile(str(VOICE_FILE))
+            # 延迟后关闭默认播放器（避免残留窗口）
+            def _close():
+                import time
+                time.sleep(1.5)
+                # 杀掉常见播放器进程（媒体播放器/ Groove/ etc）
+                for name in ["MediaPlayer.exe", "Music.UI.exe", "Microsoft.Photos.exe"]:
+                    try:
+                        subprocess.run(["taskkill", "/f", "/im", name],
+                                       timeout=3, capture_output=True)
+                    except Exception:
+                        pass
+            import threading
+            threading.Thread(target=_close, daemon=True).start()
         except Exception:
             pass
 
