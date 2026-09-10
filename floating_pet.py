@@ -336,7 +336,7 @@ class FloatingPet:
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         arrow = "▲" if pred == 1 else "▼"
         word = "涨" if pred == 1 else "跌"
-        pct = f"{conf * 100:.0f}%"
+        pct = f"{conf * 100:.2f}%"
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
 
         c.create_text(x, 52, anchor="w", text=arrow, fill=color,
@@ -345,8 +345,9 @@ class FloatingPet:
                       font=(CN_FONT, 12, "bold"))
         c.create_text(x, 78, anchor="w", text=pct, fill=TEXT_HI,
                       font=(NUM_FONT, 15, "bold"))
-        c.create_text(x + 42, 84, anchor="w", text="把握", fill=TEXT_HI,
-                      font=(CN_FONT, 10))
+        # 把握独立块: 与数字同字号 15、同行、字重一致, 右对齐固定在 x+118 列的右侧
+        c.create_text(x + 118, 78, anchor="e", text="把握", fill=TEXT_HI,
+                      font=(CN_FONT, 15, "bold"))
         if rate_text:
             c.create_text(x, 98, anchor="w", text=rate_text, fill=TEXT_MD,
                           font=(RATE_FONT, 12, "bold"))
