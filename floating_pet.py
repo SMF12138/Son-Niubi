@@ -203,11 +203,11 @@ class FloatingPet:
         # 按钮栏
         bx = self.W - 14
         c.create_text(bx, 12, text="✕", fill="#555",
-                       font=("Arial", 13, "bold"))
+                       font=("Microsoft YaHei", 12, "bold"))
         c.create_text(bx - 22, 12, text="—", fill="#555",
-                       font=("Arial", 14, "bold"))
+                       font=("Microsoft YaHei", 13, "bold"))
         c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
-                       fill="#777", font=("Arial", 11))
+                       fill="#777", font=("Microsoft YaHei", 11))
 
     def _draw_data(self, x):
         c = self.canvas
