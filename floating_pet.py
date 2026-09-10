@@ -396,7 +396,8 @@ class FloatingPet:
         # 容器1: 涨跌 + 概率
         box1_y = 40
         self._round_rect(c, box_x, box1_y, box_x + box_w, box1_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
-        txt1 = f"{word}  {pct}"
+        arrow = "▲" if pred == 1 else "▼"
+        txt1 = f"{arrow} {word}  {pct}"
         c.create_text(box_x + box_w // 2, box1_y + box_h // 2, text=txt1, fill=color, font=F, anchor="center")
 
         # 容器2: 汇率
