@@ -48,7 +48,7 @@ DOWN_COLOR = "#35D0A0"   # 跌（绿）
 IMG_TARGET_H = 120       # 竖图按高度适配
 IMG_TARGET_W = 118       # 方图按宽度适配
 
-W_FULL, H_FULL = 300, 165
+W_FULL, H_FULL = 300, 200
 W_MIN, H_MIN = 48, 48
 
 BTN_R = 7
@@ -188,7 +188,7 @@ class FloatingPet:
 
     def _hit_horizon(self, x, y):
         """日期块区: 数据区右半(>=160), y∈[146,164] 为 4 段按钮. 返回段对应的 horizon 或 None."""
-        if x < 160 or not (116 <= y <= 132):
+        if x < 160 or not (136 <= y <= 152):
             return None
         seg_w = 30
         idx = int((x - 160) // seg_w)
@@ -207,7 +207,7 @@ class FloatingPet:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 116 <= e.y <= 132:
+        if e.x >= 160 and 136 <= e.y <= 152:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
@@ -358,7 +358,7 @@ class FloatingPet:
         self.canvas.delete("btn")
         self._draw_buttons()
 
-    def _draw_data(self, x):
+    def _draw_data(self, x0):
         c = self.canvas
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
@@ -366,42 +366,49 @@ class FloatingPet:
         rate = self.data.get("base_rate", 0)
         as_of = self.data.get("as_of", "")[:10]
 
-        # 标题区（与右上按钮同行 y=20，字体统一）
-        c.create_oval(x, 20, x + 6, 26, fill=ACCENT, outline="")
-        c.create_text(x + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
-                      font=(RATE_FONT, 10))
-
-        if not self.data:
-            c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=(RATE_FONT, 13))
-            self._draw_horizon_bar(160, 146)
-            return
-
         color = UP_COLOR if pred == 1 else DOWN_COLOR
-        arrow = "▲" if pred == 1 else "▼"
         word = "涨" if pred == 1 else "跌"
         pct = f"{conf * 100:.2f}%"
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
         N = self.horizon
 
-        # 第1行: 68.00% 涨
-        c.create_text(x, 48, anchor="w", text=pct, fill=TEXT_HI,
-                      font=(RATE_FONT, 12, "bold"))
-        c.create_text(x + 70, 48, anchor="w", text=word, fill=color,
-                      font=(RATE_FONT, 12, "bold"))
+        # 标题区（与右上按钮同行 y=20）
+        c.create_oval(x0, 20, x0 + 6, 26, fill=ACCENT, outline="")
+        c.create_text(x0 + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
+                      font=(RATE_FONT, 10))
 
-        # 第2行: 汇率
-        if rate_text:
-            c.create_text(x, 68, anchor="w", text=rate_text, fill=TEXT_MD,
-                          font=(RATE_FONT, 12, "bold"))
+        if not self.data:
+            c.create_text(x0, self.H // 2, anchor="w", text="等待数据…",
+                          fill=TEXT_DIM, font=(RATE_FONT, 12))
+            self._draw_horizon_bar(160, 160)
+            return
 
-        # 第3行: 日期（独立一整行，放大）
-        if as_of:
-            c.create_text(x, 88, anchor="w", text=as_of, fill=TEXT_DIM,
-                          font=(RATE_FONT, 12))
+        # ---- 等宽容器区域 ----
+        box_w = 120   # 每个容器宽度
+        box_h = 28    # 每个容器高度
+        gap = 6        # 容器间距
+        box_x = x0     # 左对齐
+        F = (RATE_FONT, 11, "bold")  # 统一字体：11号 bold
 
-        # 日期块（4 段切换）
-        self._draw_horizon_bar(160, 116)
+        # 容器1: 涨跌 + 概率（一行）
+        box1_y = 40
+        self._round_rect(c, box_x, box1_y, box_x + box_w, box1_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
+        txt1 = f"{word}  {pct}"
+        c.create_text(box_x + box_w // 2, box1_y + box_h // 2, text=txt1, fill=color, font=F, anchor="center")
+
+        # 容器2: 汇率
+        box2_y = box1_y + box_h + gap
+        self._round_rect(c, box_x, box2_y, box_x + box_w, box2_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
+        c.create_text(box_x + box_w // 2, box2_y + box_h // 2, text=rate_text, fill="#B8C0CC", font=F, anchor="center")
+
+        # 容器3: 日期
+        box3_y = box2_y + box_h + gap
+        self._round_rect(c, box_x, box3_y, box_x + box_w, box3_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
+        c.create_text(box_x + box_w // 2, box3_y + box_h // 2, text=as_of, fill="#6B7380", font=F, anchor="center")
+
+        # 日期块按钮栏（容器4区域）
+        box4_y = box3_y + box_h + gap + 4
+        self._draw_horizon_bar(160, box4_y)
 
         # 置信度条（日期块下方留足间距，放到 y=165 下方）
         # 卡片底部预留：日期块下移，置信度条放到日期块下方
