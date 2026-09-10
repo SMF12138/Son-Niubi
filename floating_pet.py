@@ -52,7 +52,6 @@ class FloatingPet:
 
         self.show_form1 = False
         self.mute = False
-        self.browser_opened = False
         self.data = {}
         self.last_mtime = 0
         self._drag_data = {"x": 0, "y": 0}
@@ -131,10 +130,8 @@ class FloatingPet:
             self._draw()
             if not self.mute:
                 self._play_voice()
-            if not self.browser_opened:
-                import webbrowser
-                webbrowser.open("http://127.0.0.1:8000")
-                self.browser_opened = True
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:8000")
             return
         # 右侧数据区 → 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
