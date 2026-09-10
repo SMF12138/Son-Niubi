@@ -9,7 +9,8 @@
 - 点击角色区切换形态 + 播放语音 + 打开网页
 - 右上按钮：关闭 / 最小化 / 静音
 - 右侧数据区拖拽移动；最小化后点击悬浮球恢复
-- 每 5s 读 forecast_7.json 刷新数据
+- 每 5s 读 forecast_*.json 刷新数据
+- 日期块切换 7/30/60/90 日 horizon，数据联动
 """
 import json
 import tkinter as tk
@@ -29,24 +30,25 @@ FORM2 = ROOT / "data" / "pet" / "form2.png"
 VOICE1 = ROOT / "data" / "pet" / "voice1.wav"
 VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
 
-# 透明键色：窗口里这个颜色会被挖成透明，露出桌面
+# 透明键色
 TRANSPARENT_KEY = "#FF00FE"
 
-BG = "#1E222A"           # 卡片底色
-PANEL = "#14171D"        # 角色图承接底板
-DIVIDER = "#2A303C"      # 分隔线
-TEXT_HI = "#FFFFFF"      # 标题 / 强调
-TEXT_MD = "#B8C0CC"      # 正文
-TEXT_DIM = "#6B7380"     # 弱化
-ACCENT = "#4FD1C5"       # 青色霓虹点缀
-BTN_BG = "#2A333C"       # 按钮底
-BTN_HOVER = "#3B4757"    # 次级按钮 hover
+BG = "#1E222A"
+PANEL = "#14171D"
+DIVIDER = "#2A303C"
+TEXT_HI = "#FFFFFF"
+TEXT_MD = "#B8C0CC"
+TEXT_DIM = "#6B7380"
+ACCENT = "#4FD1C5"
+BTN_BG = "#2A333C"
+BTN_HOVER = "#3B4757"
 BTN_CLOSE_HOVER = "#E5484D"
-UP_COLOR = "#FF6B5E"     # 涨（红）
-DOWN_COLOR = "#35D0A0"   # 跌（绿）
+UP_COLOR = "#FF6B5E"
+DOWN_COLOR = "#35D0A0"
+BOX_BG = "#1A1D24"
 
-IMG_TARGET_H = 120       # 竖图按高度适配
-IMG_TARGET_W = 118       # 方图按宽度适配
+IMG_TARGET_H = 120
+IMG_TARGET_W = 118
 
 W_FULL, H_FULL = 300, 165
 W_MIN, H_MIN = 48, 48
@@ -55,9 +57,7 @@ BTN_R = 7
 BTN_Y = 20
 BTN_XS = {"mute": 248, "min": 267, "close": 286}
 
-CN_FONT = "Microsoft YaHei"   # 中文
-RATE_FONT = "Microsoft YaHei"   # 统一字体
-TITLE_FONT = CN_FONT           # 兼容别名
+FONT = "Microsoft YaHei"  # 全局统一字体
 
 
 class FloatingPet:
@@ -86,8 +86,8 @@ class FloatingPet:
         self.mute = False
         self.data = {}
         self.last_mtime = 0
-        self.horizon = 7          # 当前展示的预测周期(交易日), 日期块可切换
-        self._hovers = set()      # 日期块 hover 集合
+        self.horizon = 7
+        self._hovers = set()
         self._drag_data = {"x": 0, "y": 0}
         self._img_refs = []
         self._hover = None
@@ -122,7 +122,7 @@ class FloatingPet:
         self._save_pos = (self.root.winfo_x(), self.root.winfo_y())
         self.minimized = True
         self.W = W_MIN
-        self.H = H_MIN
+        self.H = W_MIN
         sw = self.root.winfo_screenwidth()
         self.root.geometry(f"{W_MIN}x{H_MIN}+{sw - W_MIN - 20}+60")
         self.canvas.config(width=W_MIN, height=H_MIN)
@@ -143,13 +143,22 @@ class FloatingPet:
                 return bid
         return None
 
+    def _hit_horizon(self, x, y):
+        """日期块区域: 右侧底部，返回 horizon 或 None"""
+        if x < 160 or not (148 <= y <= 164):
+            return None
+        seg_w = 30
+        idx = int((x - 160) // seg_w)
+        if 0 <= idx < len(HORIZONS):
+            return HORIZONS[idx]
+        return None
+
     def _on_click(self, e):
         if self.minimized:
             self._restore()
             return
 
         bid = self._hit_button(e.x, e.y)
-        # ✕ 关闭
         if bid == "close":
             import subprocess
             subprocess.run(
@@ -160,16 +169,14 @@ class FloatingPet:
                 timeout=5, capture_output=True)
             self.root.destroy()
             return
-        # — 最小化
         if bid == "min":
             self._minimize()
             return
-        # 🔊/🔇 静音
         if bid == "mute":
             self.mute = not self.mute
             self._draw()
             return
-        # 左侧角色区 → 切换形态 + 播放语音 + 打开网页
+        # 左侧角色区
         if e.x < 150:
             self.show_form1 = not self.show_form1
             self._draw()
@@ -178,23 +185,13 @@ class FloatingPet:
             import webbrowser
             webbrowser.open("http://127.0.0.1:8000")
             return
-        # 日期块: 右侧底部 4 段可点击切换 horizon
+        # 日期块
         h = self._hit_horizon(e.x, e.y)
         if h is not None:
             self._set_horizon(h)
             return
-        # 右侧数据区 → 拖拽
+        # 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
-
-    def _hit_horizon(self, x, y):
-        """日期块区: 数据区右半(>=160), y∈[146,164] 为 4 段按钮. 返回段对应的 horizon 或 None."""
-        if x < 160 or not (150 <= y <= 165):
-            return None
-        seg_w = 30
-        idx = int((x - 160) // seg_w)
-        if 0 <= idx < len(HORIZONS):
-            return HORIZONS[idx]
-        return None
 
     def _do_drag(self, e):
         dx = e.x - self._drag_data["x"]
@@ -207,7 +204,7 @@ class FloatingPet:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 150 <= e.y <= 165:
+        if e.x >= 160 and 148 <= e.y <= 164:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
@@ -254,7 +251,7 @@ class FloatingPet:
         if h == self.horizon:
             return
         self.horizon = h
-        self.last_mtime = -1   # 强制重新读取目标 horizon 文件
+        self.last_mtime = -1
         self.data = {}
         self._refresh_data()
         self._draw()
@@ -281,22 +278,17 @@ class FloatingPet:
     def _draw_ball(self):
         c = self.canvas
         cx, cy = W_MIN // 2, H_MIN // 2
-        # 底部阴影
         c.create_oval(cx - 16, cy - 8, cx + 16, cy + 20,
                       fill="#12161D", outline="")
-        # 外光环
         c.create_oval(cx - 21, cy - 21, cx + 21, cy + 21,
                       fill="#2A333C", outline="")
-        # 同心椭圆叠出渐变光泽
         for r, col in [(19, "#26303E"), (16, "#2C3948"), (13, "#35455A"),
                        (10, "#3F536B"), (7, "#4A617C")]:
             c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="")
-        # 左上高光
         c.create_oval(cx - 12, cy - 14, cx - 3, cy - 5,
                       fill="#6E8BAE", outline="")
         c.create_oval(cx - 10, cy - 12, cx - 5, cy - 7,
                       fill="#A6BEDA", outline="")
-        # 状态点 + 圆环
         d = self.data.get("direction", {})
         color = UP_COLOR if d.get("prediction", 0) == 1 else DOWN_COLOR
         dx, dy = cx + 11, cy - 11
@@ -306,32 +298,18 @@ class FloatingPet:
 
     def _draw_full(self):
         c = self.canvas
-
-        # 圆角卡片
         self._round_rect(c, 3, 3, self.W - 3, self.H - 3, 16,
                          fill=BG, outline=DIVIDER, width=1)
-
-        # 角色图底板
         self._round_rect(c, 10, 6, 146, 134, 12, fill=PANEL, outline="")
-
-        # 角色图片（黑底原图，直接承接在卡片上）
         img = self.img_form1 if self.show_form1 else self.img_form2
         if img:
             c.create_image(78, 70, image=img)
-
-        # 当前形态小标签
         label = "儿子" if self.show_form1 else "奶龙"
         self._round_rect(c, 55, 138, 101, 154, 8, fill=BTN_BG, outline="")
         c.create_text(78, 146, text=label, fill=ACCENT,
-                      font=(CN_FONT, 10))
-
-        # 竖向分隔线
+                      font=(FONT, 10))
         c.create_line(150, 16, 150, 148, fill=DIVIDER, width=1)
-
-        # 数据区
         self._draw_data(160)
-
-        # 按钮栏
         self._draw_buttons()
 
     def _draw_buttons(self):
@@ -352,7 +330,7 @@ class FloatingPet:
             else:
                 txt = "🔇" if self.mute else "🔊"
             c.create_text(cx, BTN_Y, text=txt, fill=fg,
-                          font=(CN_FONT, 8), tags="btn")
+                          font=(FONT, 8), tags="btn")
 
     def _redraw_buttons(self):
         self.canvas.delete("btn")
@@ -368,51 +346,51 @@ class FloatingPet:
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
+        arrow = "▲" if pred == 1 else "▼"
         pct = f"{conf * 100:.2f}%"
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
-        N = self.horizon
 
         # 标题区（与右上按钮同行 y=20）
         c.create_oval(x0, 20, x0 + 6, 26, fill=ACCENT, outline="")
         c.create_text(x0 + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
-                      font=(RATE_FONT, 10))
+                      font=(FONT, 10))
 
         if not self.data:
             c.create_text(x0, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=(RATE_FONT, 12))
-            self._draw_horizon_bar(160, 160)
+                          fill=TEXT_DIM, font=(FONT, 12))
+            self._draw_horizon_bar(160, 138)
             return
 
-        # ---- 等宽容器区域（紧贴底部，不留空白）----
-        box_w = 120   # 每个容器宽度
-        box_h = 26    # 每个容器高度（稍压缩）
-        gap = 4        # 容器间距
-        box_x = x0     # 左对齐
-        F = (RATE_FONT, 11, "bold")  # 统一字体
-
-        # 日期块按钮栏（紧贴容器3下方）
-        self._draw_horizon_bar(160, box3_y + box_h + gap)
+        # 容器参数
+        box_w = 120
+        box_h = 26
+        gap = 4
+        F = (FONT, 11, "bold")
 
         # 容器1: 涨跌 + 概率
         box1_y = 40
-        self._round_rect(c, box_x, box1_y, box_x + box_w, box1_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
-        arrow = "▲" if pred == 1 else "▼"
+        self._round_rect(c, x0, box1_y, x0 + box_w, box1_y + box_h, 8,
+                         fill=BOX_BG, outline=DIVIDER)
         txt1 = f"{arrow} {word}  {pct}"
-        c.create_text(box_x + box_w // 2, box1_y + box_h // 2, text=txt1, fill=color, font=F, anchor="center")
+        c.create_text(x0 + box_w // 2, box1_y + box_h // 2,
+                      text=txt1, fill=color, font=F, anchor="center")
 
         # 容器2: 汇率
         box2_y = box1_y + box_h + gap
-        self._round_rect(c, box_x, box2_y, box_x + box_w, box2_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
-        c.create_text(box_x + box_w // 2, box2_y + box_h // 2, text=rate_text, fill="#B8C0CC", font=F, anchor="center")
+        self._round_rect(c, x0, box2_y, x0 + box_w, box2_y + box_h, 8,
+                         fill=BOX_BG, outline=DIVIDER)
+        c.create_text(x0 + box_w // 2, box2_y + box_h // 2,
+                      text=rate_text, fill=TEXT_MD, font=F, anchor="center")
 
         # 容器3: 日期
         box3_y = box2_y + box_h + gap
-        self._round_rect(c, box_x, box3_y, box_x + box_w, box3_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
-        c.create_text(box_x + box_w // 2, box3_y + box_h // 2, text=as_of, fill="#6B7380", font=F, anchor="center")
+        self._round_rect(c, x0, box3_y, x0 + box_w, box3_y + box_h, 8,
+                         fill=BOX_BG, outline=DIVIDER)
+        c.create_text(x0 + box_w // 2, box3_y + box_h // 2,
+                      text=as_of, fill=TEXT_DIM, font=F, anchor="center")
 
-        # 置信度条（日期块下方留足间距，放到 y=165 下方）
-        # 卡片底部预留：日期块下移，置信度条放到日期块下方
-        # 不再画置信度条（布局已满），改为在日期块里显示 N 值
+        # 日期块按钮栏（紧贴容器3下方）
+        self._draw_horizon_bar(160, box3_y + box_h + gap)
 
     def _draw_horizon_bar(self, x0, y):
         """4 段 horizon 日期块按钮栏，当前选中高亮，hover 变色"""
@@ -434,7 +412,7 @@ class FloatingPet:
                 fg = TEXT_DIM
             self._round_rect(c, x1, y, x2, y + 16, 6, fill=bg, outline="")
             c.create_text((x1 + x2) // 2, y + 8, text=f"{h}日", fill=fg,
-                          font=(CN_FONT, 8, "bold"))
+                          font=(FONT, 8, "bold"))
 
     def run(self):
         self.root.mainloop()
