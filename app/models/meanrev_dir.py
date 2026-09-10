@@ -13,7 +13,6 @@
 """
 import numpy as np
 
-from app import config
 from app.models.mean_reversion import synthetic_meanrev_score
 
 MREV_FEATS = ["ma60_dev", "ma20_dev", "mom20", "pos60", "cusd_mom20"]
@@ -21,6 +20,13 @@ MREV_FEATS = ["ma60_dev", "ma20_dev", "mom20", "pos60", "cusd_mom20"]
 
 class MeanRevDirectionPredictor:
     name = "MeanRev-DIR"
+
+    def __init__(self):
+        self._meanrev_conf = {}  # {N: actual_accuracy} 从 calibration.json 加载
+
+    def set_calibration(self, meanrev_conf: dict):
+        """设置数据驱动的 base_conf: {N: accuracy}。"""
+        self._meanrev_conf = meanrev_conf
 
     def predict_direction(self, ctx, N):
         lp = ctx["lp"]; i = ctx["i"]; Xf = ctx["Xf"]; valid = ctx["valid"]
@@ -54,7 +60,9 @@ class MeanRevDirectionPredictor:
 
         # 强信号: 直接采用均值回复方向, 高置信
         if strength >= 1.0:
-            base_conf = min(0.73 + strength * 0.02, 0.82)
+            # 数据驱动: 用校准的实际命中率, 加上小幅度 strength 加成
+            base_conf = self._meanrev_conf.get(N, 0.73)
+            base_conf = min(base_conf + strength * 0.01, 0.82)
             if confirms >= 1:
                 base_conf = min(base_conf + 0.02, 0.82)
             conf = base_conf
@@ -81,43 +89,3 @@ class MeanRevDirectionPredictor:
     @staticmethod
     def _flat():
         return {"prediction": 0, "confidence": 0.5, "prob_up": 0.5, "prob_down": 0.5}
-
-
-def run_direction_backtest(df, oil_df=None, sentiment_df=None, rate_df=None):
-    """与 direction_plus.run_direction_backtest 同形状的 walk-forward 回测入口。"""
-    import logging
-    from app.data.features import build_features
-    log = logging.getLogger(__name__)
-    lp = np.log(df["cny_rub"].to_numpy(float))
-    dates = df.index; m = len(lp)
-    Fdf = build_features(df, oil_df=oil_df, sentiment_df=sentiment_df, rate_df=rate_df)
-    valid = np.where(Fdf.notna().all(axis=1).to_numpy())[0]
-    Xf = Fdf.to_numpy(float); feat_names = list(Fdf.columns)
-    pred = MeanRevDirectionPredictor()
-    first = max(config.MIN_TRAIN, int(valid[0]) if len(valid) else 0)
-    horizons = {}
-    for N in config.N_HORIZONS:
-        last = m - 1 - N
-        starts = list(range(first, last + 1))
-        correct = conf_c = conf_t = total = 0
-        for i in starts:
-            ctx = {"lp": lp, "i": i, "Xf": Xf, "valid": valid, "feat_names": feat_names}
-            r = pred.predict_direction(ctx, N)
-            actual = 1 if lp[i + N] > lp[i] else 0
-            hit = r["prediction"] == actual
-            correct += int(hit); total += 1
-            if r["confidence"] > 0.6: conf_c += int(hit); conf_t += 1
-        up = sum(1 for i in starts if lp[i + N] > lp[i])
-        bl = max(up, total - up) / total if total else 0.5
-        horizons[str(N)] = {
-            "N": N, "windows": total, "accuracy": round(correct / total, 4),
-            "confident_accuracy": round(conf_c / conf_t, 4) if conf_t else 0,
-            "confident_windows": conf_t,
-            "confident_ratio": round(conf_t / total, 4) if total else 0,
-            "baseline_always_majority": round(bl, 4),
-        }
-        log.info("N=%d: %d 窗口 → %.1f%%, conf>60%%: %.1f%% (基线 %.1f%%)", N, total,
-            correct / total * 100, (conf_c / conf_t * 100 if conf_t else 0), bl * 100)
-    return {"meta": {"as_of": dates[-1].isoformat(), "rows": m,
-                     "model": "MeanRevDirectionPredictor"},
-            "horizons": horizons}

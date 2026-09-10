@@ -40,5 +40,5 @@ if (-not (Test-Path $vendor)) {
     Write-Host 'ECharts 已存在,跳过'
 }
 
-& $py -c "import flask,pandas,numpy,statsmodels,sklearn;print('依赖验证: ok')"
+& $py -c "import flask,pandas,numpy;print('依赖验证: ok')"
 Write-Host "设置完成。运行 .\scripts\run.ps1 启动仪表盘。"

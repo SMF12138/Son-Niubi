@@ -69,40 +69,6 @@ def evaluate() -> dict:
     }
 
 
-def daily_accuracy_series(roll: int = 60) -> list:
-    """返回每个历史交易日的滚动 7 日预测命中率序列(无前视, 供折线悬显)。
-    每点 = 截至该日前 roll 个已实现预测的命中率。"""
-    from app.data import store
-    from app.data.moex_rates import load_moex
-    store.init_db()
-    df = store.load_rates()
-    off_d = [d.strftime("%Y-%m-%d") for d in df.index]
-    lp = np.log(df["cny_rub"].to_numpy(float))
-    m = len(lp)
-    idx_of = {d: i for i, d in enumerate(off_d)}
-    moex = load_moex()
-    common = [d for d in off_d if d in moex]
-    pos = [idx_of[d] for d in common]
-    rawdev = [np.log(moex[d]) - lp[idx_of[d]] for d in common]
-    hits = []
-    for k in range(len(common)):
-        i = pos[k]
-        if k + 1 < 60 or i + N_HOR >= m:
-            continue
-        a = np.array(rawdev[max(0, k + 1 - 150):k + 1])
-        z = (rawdev[k] - a.mean()) / (a.std() + 1e-9)
-        pred = 1 if z > 0 else 0
-        actual = 1 if lp[i + N_HOR] > lp[i] else 0
-        hits.append((off_d[i], pred == actual))
-    out = []
-    for t in range(len(hits)):
-        lo = max(0, t - roll + 1)
-        window = [h for _, h in hits[lo:t + 1]]
-        out.append({"date": hits[t][0],
-                    "acc": round(sum(window) / len(window), 4)})
-    return out
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     r = evaluate()

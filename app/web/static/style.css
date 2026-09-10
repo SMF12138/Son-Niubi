@@ -13,7 +13,6 @@
 
   --accent:      #8B2500;
   --accent-soft: rgba(139, 37, 0, 0.08);
-  --accent-glow: rgba(139, 37, 0, 0.15);
   --gold:        #B8860B;
   --gold-soft:   rgba(184, 134, 11, 0.1);
 
@@ -21,11 +20,14 @@
   --up-bg:       rgba(196, 30, 58, 0.06);
   --down:        #2E7D52;
   --down-bg:     rgba(46, 125, 82, 0.06);
+  --up-border:   rgba(196, 30, 58, 0.15);
+  --down-border: rgba(46, 125, 82, 0.15);
+  --gold-border: rgba(184, 134, 11, 0.2);
 
   --text:        #2C1810;
   --text-body:   #4A3728;
   --text-dim:    #8B7D6B;
-  --text-mute:   #A99F8F;
+  --text-mute:   #7A6E5E;
 
   --shadow:      0 2px 12px rgba(44, 24, 16, 0.06);
   --shadow-lg:   0 4px 24px rgba(44, 24, 16, 0.08);
@@ -45,7 +47,6 @@
 
   --accent:      #D4A843;
   --accent-soft: rgba(212, 168, 67, 0.1);
-  --accent-glow: rgba(212, 168, 67, 0.2);
   --gold:        #D4A843;
   --gold-soft:   rgba(212, 168, 67, 0.08);
 
@@ -53,11 +54,14 @@
   --up-bg:       rgba(232, 97, 90, 0.08);
   --down:        #5CB88A;
   --down-bg:     rgba(92, 184, 138, 0.08);
+  --up-border:   rgba(232, 97, 90, 0.2);
+  --down-border: rgba(92, 184, 138, 0.2);
+  --gold-border: rgba(212, 168, 67, 0.25);
 
   --text:        #E8DFD0;
   --text-body:   #C9BCA8;
   --text-dim:    #8A7E6E;
-  --text-mute:   #5E5448;
+  --text-mute:   #9A8C77;
 
   --shadow:      0 2px 12px rgba(0, 0, 0, 0.2);
   --shadow-lg:   0 4px 24px rgba(0, 0, 0, 0.3);
@@ -248,11 +252,11 @@ body {
 }
 .hero-main.dir-up {
   background: var(--up-bg);
-  border: 1px solid rgba(196, 30, 58, 0.15);
+  border: 1px solid var(--up-border);
 }
 .hero-main.dir-down {
   background: var(--down-bg);
-  border: 1px solid rgba(46, 125, 82, 0.15);
+  border: 1px solid var(--down-border);
 }
 .hero-horizon {
   font-size: 12px;
@@ -293,9 +297,9 @@ body {
   font-weight: 700;
   letter-spacing: 1px;
 }
-.badge-high { background: var(--down-bg); color: var(--down); border: 1px solid rgba(46, 125, 82, 0.2); }
-.badge-mid  { background: var(--gold-soft); color: var(--gold); border: 1px solid rgba(184, 134, 11, 0.2); }
-.badge-low  { background: var(--accent-soft); color: var(--text-dim); border: 1px solid var(--border); }
+.badge-high { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
+.badge-mid  { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border); }
+.badge-low  { background: var(--up-bg); color: var(--up); border: 1px solid var(--up-border); }
 
 .hero-signal {
   margin-top: 10px;
@@ -422,9 +426,9 @@ body {
   font-weight: 700;
   letter-spacing: 1px;
 }
-.health-badge.h-good { background: var(--down-bg); color: var(--down); border: 1px solid rgba(46, 125, 82, 0.2); }
-.health-badge.h-warn { background: var(--gold-soft); color: var(--gold); border: 1px solid rgba(184, 134, 11, 0.2); }
-.health-badge.h-bad  { background: rgba(196, 30, 58, 0.08); color: var(--up); border: 1px solid rgba(196, 30, 58, 0.2); }
+.health-badge.h-good { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
+.health-badge.h-warn { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border); }
+.health-badge.h-bad  { background: var(--up-bg); color: var(--up); border: 1px solid var(--up-border); }
 
 .health-pct {
   font-family: 'Georgia', 'Times New Roman', serif;
@@ -471,9 +475,9 @@ body {
   padding: 3px 10px; border-radius: 6px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
 }
+.uncert-badge.u-high { background: rgba(46, 125, 82, 0.08); color: var(--down); }
 .uncert-badge.u-mid  { background: var(--gold-soft); color: var(--gold); }
-.uncert-badge.u-warn { background: var(--gold-soft); color: var(--gold); }
-.uncert-badge.u-high { background: rgba(196, 30, 58, 0.08); color: var(--up); }
+.uncert-badge.u-low  { background: rgba(196, 30, 58, 0.08); color: var(--up); }
 .uncert-title { font-size: 13px; color: var(--text-dim); flex: 1; }
 .uncert-chevron {
   font-size: 16px; color: var(--text-mute);

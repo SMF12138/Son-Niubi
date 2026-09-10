@@ -157,11 +157,11 @@
 
 ## 新增文件（全部无前视、可复用）
 
-> ⚠️ 2026-09-10：以下文件 2-5 已在系统审计中删除（死代码清理），仅保留 1。
+> ⚠️ 2026-09-10：以下文件 2-5 已在系统审计中删除（死代码清理），仅保留 1（其 `mean_rev_series` 也已删除）。
 
 1. `app/models/mean_reversion.py`（现存）：
    - `mean_rev_signal(close, i, N, k=2.0)` -> 单点信号
-   - `mean_rev_series(close, N, k)` -> 批量触发点
+   - ~~`mean_rev_series(close, N, k)` -> 批量触发点~~（已删，从未被调用）
 2. ~~`app/models/strategy.py`~~（已删）
 3. ~~`app/models/direction_ensemble.py`~~（已删）
 4. ~~`app/models/baselines_dir.py`~~（已删）

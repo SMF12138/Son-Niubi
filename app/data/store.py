@@ -1,5 +1,9 @@
 """SQLite 缓存:历史牌价 + 油价 + 新闻情绪 + meta 键值。"""
+import json
+import os
 import sqlite3
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 
@@ -11,6 +15,20 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
+
+def write_json_atomic(path: Path, obj) -> None:
+    """原子写 JSON:先写同目录临时文件再 os.replace, 避免读者读到半截文件。"""
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def init_db() -> None:
@@ -48,22 +66,6 @@ def init_db() -> None:
             "moex_close REAL, moex_high REAL, moex_low REAL)"
         )
         conn.commit()
-
-
-def set_meta(key: str, value: str) -> None:
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO meta(key,value) VALUES(?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
-        )
-        conn.commit()
-
-
-def get_meta(key: str) -> str | None:
-    with connect() as conn:
-        row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-    return row["value"] if row else None
 
 
 def upsert_rates(rows: list[tuple]) -> None:

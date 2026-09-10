@@ -46,8 +46,7 @@ def cmd_backtest(_):
     df, oil_df, sent_df, rate_df = _load_all()
     t0 = time.time()
     dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-    with open(config.DIRECTION_JSON, "w", encoding="utf-8") as f:
-        json.dump(dir_rep, f, ensure_ascii=False, indent=1)
+    store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
     for N in config.N_HORIZONS:
         h = dir_rep["horizons"].get(str(N))
         if not h: continue
@@ -83,14 +82,20 @@ def cmd_calibrate(_):
 def cmd_serve(args):
     store.init_db()
     # 启动时同步最新数据(数据源无更新时 ~2s 内完成, 不拖慢)
+    # 任一数据源失败只记日志, 用已有缓存继续 —— 断网也要能开看板
     prev_last = store.last_date()
-    print(json.dumps(fetcher.sync(), ensure_ascii=False))
-    print(json.dumps(fetcher.fetch_oil_prices(), ensure_ascii=False))
-    from app.data.news import fetch_news; fetch_news()
-    from app.data.cbr_rates import fetch_key_rate; fetch_key_rate()
+    from app.data.news import fetch_news
+    from app.data.cbr_rates import fetch_key_rate
     from app.data.moex_rates import fetch_moex_onshore
-    try: fetch_moex_onshore()
-    except Exception as e: print("MOEX 抓取跳过:", e)
+    for name, fn in [("CBR", lambda: fetcher.sync()),
+                     ("oil", fetcher.fetch_oil_prices),
+                     ("news", fetch_news),
+                     ("key_rate", fetch_key_rate),
+                     ("moex", fetch_moex_onshore)]:
+        try:
+            print(f"{name}:", json.dumps(fn(), ensure_ascii=False))
+        except Exception as e:
+            log.warning("启动同步 %s 失败(用缓存继续): %s", name, e)
     # 仅在"数据有新增"或"产物缺失"时重跑回测+校准+预测, 否则跳过(秒启动)
     new_last = store.last_date()
     if (new_last != prev_last or not config.DIRECTION_JSON.exists()
@@ -98,8 +103,7 @@ def cmd_serve(args):
         from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
         df, oil_df, sent_df, rate_df = _load_all()
         dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-        with open(config.DIRECTION_JSON, "w", encoding="utf-8") as f:
-            json.dump(dir_rep, f, ensure_ascii=False, indent=1)
+        store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
         calibrate_moex_z(df, oil_df, sent_df, rate_df)
         from app import forecast as fc
         fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)

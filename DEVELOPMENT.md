@@ -32,7 +32,7 @@
 
 ### P1
 
-3. **测试覆盖**：补 moex_dir / meanrev_dir / 校准的单测。
+3. ~~**测试覆盖**：补 moex_dir / meanrev_dir / 校准的单测。~~ ✅ 已补 `tests/test_models.py`（校准单调性 / 确认信号编号 1-6 / MeanRev / 投影，全套 18 项）
 4. **features.slope20 性能**：rolling+polyfit → 向量化。
 5. **前端未用端点收敛**：保留为调试 API 或删。
 

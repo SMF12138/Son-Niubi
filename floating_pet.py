@@ -2,8 +2,8 @@
 
 视觉：
 - 透明窗口 + Canvas 圆角卡片（#1E222A）
-- 文字层级：标题 #FFFFFF / 正文 #B8C0CC / 弱化 #6B7380，青色霓虹点缀
-- 右上角三个圆形 icon 按钮（✕ / — / 🔊），hover 变色
+- 文字层级：标题 #FFFFFF / 正文 #B8C0CC / 弱化 #8B95A3，青色霓虹点缀
+- 右上角四个圆形 icon 按钮（地球 / 静音 / 最小化 / 关闭），hover 变色
 
 交互（逻辑未改）：
 - 点击角色区切换形态 + 播放语音 + 打开网页
@@ -34,46 +34,272 @@ VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
 # 透明键色
 TRANSPARENT_KEY = "#FF00FE"
 
-BG = "#1E222A"
-PANEL = "#14171D"
-DIVIDER = "#2A303C"
+BG = "#1E222A"              # 卡片底
+PANEL = "#14171D"           # 角色面板底
+DIVIDER = "#2A303C"         # 细描边
 TEXT_HI = "#FFFFFF"
 TEXT_MD = "#B8C0CC"
-TEXT_DIM = "#6B7380"
-ACCENT = "#4FD1C5"
+TEXT_DIM = "#8B95A3"        # 小字在 BG 上的对比度 5.3:1, 满足小字号 4.5:1 下限
+ACCENT = "#4FD1C5"          # 强调色(标题点 / 选中日期块 / 开关 ON)
 BTN_BG = "#2A333C"
 BTN_HOVER = "#3B4757"
 BTN_CLOSE_HOVER = "#E5484D"
 UP_COLOR = "#FF6B5E"
 DOWN_COLOR = "#35D0A0"
-BOX_BG = "#1A1D24"
 
-IMG_TARGET_H = 120
-IMG_TARGET_W = 118
+IMG_TARGET_H = 104
+IMG_TARGET_W = 100
 
-W_FULL, H_FULL = 300, 165
-W_MIN, H_MIN = 48, 48
+W_FULL, H_FULL = 320, 176
+W_MIN, H_MIN = 52, 52       # 悬浮球尺寸(与 _draw_ball 的 r=23 匹配)
+DRAG_THRESHOLD = 4          # 位移超过该像素才算拖拽, 否则视为点击
+
+# ---- 卡片布局(320x176, 内边距 13px) ----
+# 所有坐标按 canvas bbox 实测校准过, 改字号必须重新量一遍再动这里。
+CARD_X0, CARD_Y0, CARD_X1, CARD_Y1 = 3, 3, 317, 173
+CARD_R = 18
+CHAR_X0, CHAR_Y0, CHAR_X1, CHAR_Y1 = 16, 16, 148, 160   # 左: 角色面板
+CHAR_R = 14
+CHAR_ZONE_R = 156           # 点击角色区的 x 上界(命中区)
+CHIP_X0, CHIP_Y0, CHIP_X1, CHIP_Y1 = 54, 140, 110, 156  # 形态芯片
+CHIP_R = 10
+DATA_X0, DATA_X1 = 164, 304                             # 右: 数据区
+HEAD_Y = 24                 # 标题行(币种)与按钮同排的垂直中心
+HERO_X0, HERO_Y0, HERO_X1, HERO_Y1 = 164, 40, 304, 84   # hero 预测块(高 44)
+HERO_R = 14
+HERO_ROW_Y = 62             # hero 单行(方向 + 概率)垂直中心
+HERO_PCT_X = 222            # 概率左缘(避让方向词)
+INFO1_Y = 100               # 字段行 1(汇率)
+INFO2_Y = 124               # 字段行 2(日期)
+INFO_VALUE_X = 197          # 字段值左缘(避让 2 字标签)
 
 BTN_R = 7
-BTN_Y = 20
-BTN_XS = {"mute": 248, "min": 267, "close": 286}
+BTN_Y = HEAD_Y
+BTN_XS = {"browser": 240, "mute": 259, "min": 278, "close": 297}
 
-FONT = "Microsoft YaHei"  # 全局统一字体
+SEG_W = 35          # 日期块宽度(绘制与命中检测共用, 不可分别硬编码)
+BAR_H = 20          # 日期块高度
+BAR_Y = 140         # 日期块顶边 y
+BAR_X = DATA_X0     # 日期块左边 x
 
-# 第一版角色颜色
-BODY_YELLOW = "#F5D547"
-BODY_DARK = "#E8C83A"
-BELLY_WHITE = "#FFF8E8"
-EYE_GREEN = "#2D8B57"
-EYE_BLACK = "#1A1210"
-MOUTH_PINK = "#E85A6A"
-ARM_YELLOW = "#EDCA3C"
+CONFIG_PATH = ROOT / "data" / "pet_config.json"
+HERO_TINT = 0.12    # hero 底色中方向色的混合比例
+
+# 字号体系(按 canvas 实测宽度定, 保证各元素不互相压到)
+FS_HERO_PCT = 18
+FS_HERO_DIR = 15
+FS_VALUE = 11
+FS_SMALL = 11       # 形态名 / 日期值
+FS_CHIP = 10
+FS_HEAD = 9
+FS_LABEL = 9
+
+# 悬浮球: tkinter Canvas 无抗锯齿, 所以自己超采样光栅化成 PhotoImage 贴图。
+# 结构(由外向内): 深色剪影 -> 金色环(角向金属渐变) -> 径向渐变底盘 -> 眼睛 -> 涨跌点
+BALL_SS = 3                 # 超采样倍数(每轴 BALL_SS 个子样本)
+BALL_RIM_OUT = 23.0         # 球外半径 / 深色剪影 外径
+BALL_RIM_IN = 22.0          # 深色剪影 内径
+BALL_RING_R = 21.0          # 金色环 中心半径
+BALL_RING_W = 2.0           # 金色环 线宽(细)
+BALL_GRAD_R = 20.0          # 径向渐变 外径(= 金环内缘)
+BALL_GRAD_IN = 8.0          # 径向渐变 内径(= 眼球半径)
+BALL_RIM = "#14171D"        # 深色剪影色: 让圆边过渡落在深色上而非亮金上
+BALL_GRAD_OUTER = (0x22, 0x27, 0x30)   # 渐变外缘色(深)
+BALL_GRAD_INNER = (0x4B, 0x57, 0x70)   # 渐变内缘色(亮)
+BALL_LIGHT_DEG = 135.0      # 金属光源方位角(逆时针, 0°=右, 90°=上)
+BALL_GOLD_STOPS = [         # (t, 金色) t: 0=背光 1=正对光源 —— 金属靠"暗铜→亮金→近白高光"
+    (0.00, "#7A5A0E"),
+    (0.35, "#B8860B"),
+    (0.62, "#E8C24A"),
+    (0.85, "#FFF3B8"),
+    (1.00, "#FFFDE8"),
+]
+BALL_EYE = [(2.0, "#1A1210"), (5.0, "#2D8B57"), (8.0, "white")]
+# 眼球层: (半径, 色) 必须由小到大 —— 渲染时首个 d < 半径 的层胜出,
+# 由小到大才能让内层(瞳孔)覆盖外层(眼白)。由大到小会导致整只眼变纯白。
+BALL_DOT_R = 4.0                # 涨跌指示点半径
+BALL_DOT_POS = (11.0, -11.0)    # 指示点圆心相对球心
+
+
+def _srgb_to_linear(c):
+    c /= 255.0
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _linear_to_srgb(c):
+    c = max(0.0, min(1.0, c))
+    v = 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
+    return round(v * 255)
+
+
+def _hex_rgb(s):
+    if s == "white":
+        return (255, 255, 255)
+    s = s.lstrip("#")
+    return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
+def _mix_linear(a, b, u):
+    """线性光空间插值, 避免 sRGB 直接插值产生的暗带。"""
+    return tuple(_linear_to_srgb(x + (y - x) * u)
+                 for x, y in zip((_srgb_to_linear(v) for v in a),
+                                 (_srgb_to_linear(v) for v in b)))
+
+
+def _pick_stops(stops, t):
+    """stops: [(t, '#rrggbb')] 递增。"""
+    if t <= stops[0][0]:
+        return _hex_rgb(stops[0][1])
+    if t >= stops[-1][0]:
+        return _hex_rgb(stops[-1][1])
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        if t0 <= t <= t1:
+            u = (t - t0) / (t1 - t0) if t1 > t0 else 0.0
+            return _mix_linear(_hex_rgb(c0), _hex_rgb(c1), u)
+    return _hex_rgb(stops[-1][1])
+
+
+def _ball_luts():
+    """预算两张查找表, 把 pow/atan2 从像素内循环里挪出去。"""
+    grad = [_mix_linear(BALL_GRAD_OUTER, BALL_GRAD_INNER, i / 255.0)
+            for i in range(256)]
+    gold = [_pick_stops(BALL_GOLD_STOPS,
+                        (math.cos(math.radians(a - BALL_LIGHT_DEG)) + 1.0) / 2.0)
+            for a in range(360)]
+    return grad, gold
+
+
+def render_ball(dot_color, size, ss=BALL_SS):
+    """把悬浮球超采样光栅化为 tk.PhotoImage(带抗锯齿)。
+
+    圆外像素填 TRANSPARENT_KEY, 由窗口的 -transparentcolor 变透明。
+    """
+    grad_lut, gold_lut = _ball_luts()
+    rim = _hex_rgb(BALL_RIM)
+    eye = [(r, _hex_rgb(c)) for r, c in BALL_EYE]
+    dot = _hex_rgb(dot_color)
+
+    cx = cy = (size - 1) / 2.0
+    step = 1.0 / ss
+    offs = [(i + 0.5) * step for i in range(ss)]
+    samples = ss * ss
+
+    ring_out = BALL_RING_R + BALL_RING_W / 2.0
+    ring_in = BALL_RING_R - BALL_RING_W / 2.0
+    dot_dx, dot_dy = BALL_DOT_POS
+    dot_r2 = BALL_DOT_R ** 2
+
+    img = tk.PhotoImage(width=size, height=size)
+    rows = []
+    for py in range(size):
+        row = []
+        for px in range(size):
+            r = g = b = 0.0
+            hit = 0
+            for oy in offs:
+                for ox in offs:
+                    dx = px + ox - cx
+                    dy = py + oy - cy
+                    d = math.sqrt(dx * dx + dy * dy)
+                    if d > BALL_RIM_OUT:
+                        continue
+                    hit += 1
+                    if d > BALL_RIM_IN:
+                        cr, cg, cb = rim
+                    elif d > ring_out:
+                        cr, cg, cb = rim
+                    elif d > ring_in:
+                        ang = int(math.degrees(math.atan2(-dy, dx))) % 360
+                        cr, cg, cb = gold_lut[ang]
+                    else:
+                        u = (BALL_GRAD_R - d) / (BALL_GRAD_R - BALL_GRAD_IN)
+                        u = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
+                        cr, cg, cb = grad_lut[int(u * 255)]
+                        for er, ecol in eye:
+                            if d < er:
+                                cr, cg, cb = ecol
+                                break
+                    ddx, ddy = dx - dot_dx, dy - dot_dy
+                    if ddx * ddx + ddy * ddy <= dot_r2:
+                        cr, cg, cb = dot
+                    r += cr
+                    g += cg
+                    b += cb
+            if hit == 0:
+                row.append(TRANSPARENT_KEY)
+            else:
+                row.append("#%02X%02X%02X"
+                           % (round(r / hit), round(g / hit), round(b / hit)))
+        rows.append("{" + " ".join(row) + "}")
+    img.put(" ".join(rows))
+    return img
+
+
+def _blend_over(bg_hex, fg_hex, alpha):
+    """把 fg 以 alpha 覆盖到 bg 上(线性光空间混合, 避免发灰)。"""
+    return "#%02X%02X%02X" % _mix_linear(_hex_rgb(bg_hex), _hex_rgb(fg_hex), alpha)
+
+
+def _load_config():
+    """读桌宠配置。文件缺失/损坏/非 dict 一律回落空字典, 绝不抛异常。"""
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_config(cfg):
+    """写桌宠配置。失败静默, 不打断交互。"""
+    try:
+        CONFIG_PATH.parent.mkdir(exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+# hero 预测块底色: 方向色按 HERO_TINT 混到卡片底上, 一眼看出涨跌
+HERO_BG = {
+    1: _blend_over(BG, UP_COLOR, HERO_TINT),
+    0: _blend_over(BG, DOWN_COLOR, HERO_TINT),
+}
+
+# 字体: 运行时从系统已装字体里挑首选。优先用真实字重变体(如 Medium),
+# 取不到才退回 Tk 合成粗体 —— 合成粗体在小字号下发糊。
+FONT_REG_PREFS = ["HarmonyOS Sans SC", "Noto Sans SC",
+                  "Microsoft YaHei UI", "Microsoft YaHei"]
+FONT_STRONG_PREFS = ["HarmonyOS Sans SC Medium", "Noto Sans SC Medium"]
+FONT_FALLBACK = "Microsoft YaHei"
+
+
+def resolve_fonts():
+    """返回 (常规族, 强调族, 强调族是否为真实字重)。需要 Tk 根窗口已存在。"""
+    try:
+        from tkinter import font as tkfont
+        have = {f.lower() for f in tkfont.families()}
+    except Exception:
+        return FONT_FALLBACK, FONT_FALLBACK, False
+
+    def pick(prefs):
+        for name in prefs:
+            if name.lower() in have:
+                return name
+        return None
+
+    reg = pick(FONT_REG_PREFS) or FONT_FALLBACK
+    strong = pick(FONT_STRONG_PREFS)
+    if strong:
+        return reg, strong, True
+    return reg, reg, False
 
 
 class FloatingPet:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("CNY/RUB 桌宠")
+        self.font, self.font_strong, self._strong_real = resolve_fonts()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.configure(bg=TRANSPARENT_KEY)
@@ -94,14 +320,18 @@ class FloatingPet:
 
         self.show_form1 = False
         self.mute = False
+        self.auto_browser = bool(_load_config().get("auto_browser", True))
         self.data = {}
         self.last_mtime = 0
         self.horizon = 7
         self._hovers = set()
-        self._drag_data = {"x": 0, "y": 0}
+        self._drag_offset = (0, 0)   # 按下时 光标屏幕坐标 - 窗口左上角
+        self._dragging = False       # 只有真正落在拖拽区才为 True
+        self._press_pos = None       # 本次按下时光标的屏幕坐标
+        self._moved = False          # 本次按下后位移是否已超过 DRAG_THRESHOLD
         self._img_refs = []
         self._hover = None
-        self.frame = 0  # 动画帧计数器
+        self._ball_imgs = {}         # {涨跌点色: 已光栅化的悬浮球贴图}
 
         self.img_form1 = None
         self.img_form2 = None
@@ -109,6 +339,7 @@ class FloatingPet:
 
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<B1-Motion>", self._do_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Leave>", self._on_leave)
 
@@ -133,7 +364,7 @@ class FloatingPet:
         self._save_pos = (self.root.winfo_x(), self.root.winfo_y())
         self.minimized = True
         self.W = W_MIN
-        self.H = W_MIN
+        self.H = H_MIN
         sw = self.root.winfo_screenwidth()
         self.root.geometry(f"{W_MIN}x{H_MIN}+{sw - W_MIN - 20}+60")
         self.canvas.config(width=W_MIN, height=H_MIN)
@@ -149,36 +380,50 @@ class FloatingPet:
         self._draw()
 
     def _hit_button(self, x, y):
+        """按钮命中检测。容差 BTN_R+2 使相邻按钮命中圈恰好相切(间距 20 = 10+10), 不重叠。"""
         for bid, cx in BTN_XS.items():
-            if (x - cx) ** 2 + (y - BTN_Y) ** 2 <= (BTN_R + 3) ** 2:
+            if (x - cx) ** 2 + (y - BTN_Y) ** 2 <= (BTN_R + 2) ** 2:
                 return bid
         return None
 
     def _hit_horizon(self, x, y):
-        """日期块区域: 右侧底部，返回 horizon 或 None"""
-        if x < 160 or not (128 <= y <= 154):
+        """日期块区域: 右侧底部，返回 horizon 或 None。
+        与 _draw_horizon_bar 共用 SEG_W / BAR_* 常量, 避免命中区与绘制区错位。"""
+        if x < BAR_X or not (BAR_Y <= y <= BAR_Y + BAR_H):
             return None
-        seg_w = 28  # 实际按钮宽度
-        idx = int((x - 160) // seg_w)
+        idx = int((x - BAR_X) // SEG_W)
         if 0 <= idx < len(HORIZONS):
             return HORIZONS[idx]
         return None
 
     def _on_click(self, e):
+        # 先置否, 只有落到拖拽分支才置真 —— 防止其它分支留下脏状态导致 <B1-Motion> 时窗口瞬移
+        self._dragging = False
+        self._press_pos = (e.x_root, e.y_root)
+        self._moved = False
+
         if self.minimized:
-            self._restore()
+            # 悬浮球: 允许拖拽移动; 若松键前没有位移, 当作点击 → 恢复窗口
+            self._dragging = True
+            self._drag_offset = (e.x_root - self.root.winfo_x(),
+                                 e.y_root - self.root.winfo_y())
             return
 
         bid = self._hit_button(e.x, e.y)
         if bid == "close":
             import subprocess
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "Get-CimInstance Win32_Process -Filter \"Name='pythonw.exe'\" "
-                 "| Where-Object { $_.CommandLine -match 'app.cli serve' } "
-                 "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                timeout=5, capture_output=True)
-            self.root.destroy()
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Get-CimInstance Win32_Process | Where-Object { "
+                     "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                     "-and $_.CommandLine -match 'app.cli serve' } "
+                     "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                    timeout=5, capture_output=True)
+            except Exception:
+                pass                # 杀服务失败也必须把宠物自己关掉
+            finally:
+                self.root.destroy()
             return
         if bid == "min":
             self._minimize()
@@ -187,35 +432,59 @@ class FloatingPet:
             self.mute = not self.mute
             self._draw()
             return
+        if bid == "browser":
+            self.auto_browser = not self.auto_browser
+            _save_config({"auto_browser": self.auto_browser})
+            self._draw()
+            return
         # 左侧角色区
-        if e.x < 150:
+        if e.x < CHAR_ZONE_R:
             self.show_form1 = not self.show_form1
             self._draw()
             if not self.mute:
                 self._play_voice()
-            import webbrowser
-            webbrowser.open("http://127.0.0.1:8000")
+            if self.auto_browser:
+                import webbrowser
+                webbrowser.open("http://127.0.0.1:8000")
             return
         # 日期块
         h = self._hit_horizon(e.x, e.y)
         if h is not None:
             self._set_horizon(h)
             return
-        # 拖拽
-        self._drag_data = {"x": e.x, "y": e.y}
+        # 拖拽: 记录光标相对窗口左上角的偏移(屏幕坐标, 窗口移动后依然成立)
+        self._dragging = True
+        self._drag_offset = (e.x_root - self.root.winfo_x(),
+                             e.y_root - self.root.winfo_y())
 
     def _do_drag(self, e):
-        dx = e.x - self._drag_data["x"]
-        dy = e.y - self._drag_data["y"]
+        if not self._dragging:
+            return
+        # 未超过阈值前不动, 避免把点击误判成拖拽
+        if not self._moved:
+            if (abs(e.x_root - self._press_pos[0]) < DRAG_THRESHOLD
+                    and abs(e.y_root - self._press_pos[1]) < DRAG_THRESHOLD):
+                return
+            self._moved = True
         self.root.geometry(
-            f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
+            f"+{e.x_root - self._drag_offset[0]}"
+            f"+{e.y_root - self._drag_offset[1]}")
+
+    def _on_release(self, _e):
+        # 悬浮球上"没移动的按下" = 点击 → 恢复窗口; 拖动过则只结束拖拽
+        clicked_ball = self._dragging and self.minimized and not self._moved
+        self._dragging = False
+        self._press_pos = None
+        self._moved = False
+        if clicked_ball:
+            self._restore()
 
     def _on_motion(self, e):
         if self.minimized:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 128 <= e.y <= 154:
+        if e.x >= BAR_X and BAR_Y <= e.y <= BAR_Y + BAR_H:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
@@ -244,18 +513,25 @@ class FloatingPet:
     def _horizon_file(self):
         return FORECAST_FILES.get(self.horizon, FORECAST_FILE)
 
-    def _refresh_data(self):
+    def _read_forecast(self):
+        """只读文件, 不重排定时器。供 _set_horizon 复用。"""
         try:
             f = self._horizon_file()
             if f.exists():
                 mtime = f.stat().st_mtime
                 if mtime != self.last_mtime:
-                    self.data = json.loads(
-                        f.read_text(encoding="utf-8"))
                     self.last_mtime = mtime
+                    obj = json.loads(f.read_text(encoding="utf-8"))
+                    if isinstance(obj, dict):    # 顶层非对象则丢弃, 防下游 .get 崩
+                        self.data = obj
         except Exception:
             pass
+
+    def _refresh_data(self):
+        """唯一一条 5s 定时链, 只在 __init__ 启动一次。
+        先排下一拍再绘制: 绘制出任何异常都不得掐断刷新链(无控制台, 断了无人知)。"""
         self.root.after(5000, self._refresh_data)
+        self._read_forecast()
         self._draw()
 
     def _set_horizon(self, h):
@@ -264,7 +540,7 @@ class FloatingPet:
         self.horizon = h
         self.last_mtime = -1
         self.data = {}
-        self._refresh_data()
+        self._read_forecast()
         self._draw()
 
     # ---------- 绘制 ----------
@@ -285,88 +561,55 @@ class FloatingPet:
             self._draw_ball()
         else:
             self._draw_full()
-        # 悬浮球动画帧递增
-        if self.minimized:
-            self.frame += 1
-            self.root.after(200, self._draw)  # 200ms 更新一次
+
+    def _ball_image(self, pred):
+        """取缓存的悬浮球贴图(按涨跌点颜色缓存, 每色只光栅化一次)。"""
+        color = UP_COLOR if pred == 1 else DOWN_COLOR
+        img = self._ball_imgs.get(color)
+        if img is None:
+            img = render_ball(color, W_MIN)
+            self._ball_imgs[color] = img
+            self._img_refs.append(img)      # 持有引用, 防止被 GC
+        return img
 
     def _draw_ball(self):
-        """悬浮球：第一版角色（原封不动）"""
+        """绘制最小化悬浮球: 直接贴预先光栅化好的抗锯齿图。"""
+        pred = (self.data.get("direction") or {}).get("prediction", 0)
         c = self.canvas
-        cx, cy = W_MIN // 2, W_MIN // 2
-        breath = math.sin(self.frame * math.pi / 2) * 2
-        # 身体（黄色圆）
-        body_r = 42
-        c.create_oval(cx - body_r, cy - body_r + breath,
-                       cx + body_r, cy + body_r + breath,
-                       fill=BODY_YELLOW, outline=BODY_DARK, width=2)
-        # 白肚皮（下方椭圆）
-        belly_w, belly_h = 28, 22
-        c.create_oval(cx - belly_w, cy + 5 + breath,
-                       cx + belly_w, cy + 5 + belly_h + breath,
-                       fill=BELLY_WHITE, outline="")
-        # 手臂（右侧小圆）
-        arm_x = cx + body_r - 8
-        arm_y = cy + 5 + breath
-        arm_r = 12
-        c.create_oval(arm_x - arm_r, arm_y - arm_r,
-                       arm_x + arm_r, arm_y + arm_r,
-                       fill=ARM_YELLOW, outline=BODY_DARK, width=1)
-        # 眼睛
-        eye_x, eye_y = cx - 6, cy - 10 + breath
-        eye_r = 14
-        # 白底
-        c.create_oval(eye_x - eye_r, eye_y - eye_r,
-                       eye_x + eye_r, eye_y + eye_r,
-                       fill="white", outline=BODY_DARK, width=1)
-        # 绿虹膜
-        iris_r = 10
-        c.create_oval(eye_x - iris_r, eye_y - iris_r,
-                       eye_x + iris_r, eye_y + iris_r,
-                       fill=EYE_GREEN, outline="")
-        # 黑瞳孔
-        pupil_r = 5
-        c.create_oval(eye_x - pupil_r, eye_y - pupil_r,
-                       eye_x + pupil_r, eye_y + pupil_r,
-                       fill=EYE_BLACK, outline="")
-        # 高光
-        hl_x, hl_y = eye_x - 3, eye_y - 4
-        c.create_oval(hl_x - 2, hl_y - 2, hl_x + 2, hl_y + 2,
-                       fill="white", outline="")
-        # 嘴巴
-        mouth_y = cy + 18 + breath
-        d = self.data.get("direction", {})
-        pred = d.get("prediction", 0)
-        if pred == 1:
-            # 看涨：开心嘴巴
-            c.create_arc(cx - 10, mouth_y - 6, cx + 10, mouth_y + 8,
-                         start=200, extent=140, style="arc",
-                         outline=MOUTH_PINK, width=2)
-            c.create_oval(cx - 5, mouth_y, cx + 5, mouth_y + 6,
-                          fill=MOUTH_PINK, outline="")
-        else:
-            # 看跌：担心小嘴
-            c.create_arc(cx - 8, mouth_y + 4, cx + 8, mouth_y - 2,
-                         start=20, extent=140, style="arc",
-                         outline=MOUTH_PINK, width=2)
+        c.create_image(0, 0, image=self._ball_image(pred), anchor="nw")
+
+    def _f(self, size, strong=False):
+        """构造 Tk 字体规格。强调文字优先用真实字重, 取不到才加合成 bold。"""
+        if strong:
+            return ((self.font_strong, size) if self._strong_real
+                    else (self.font_strong, size, "bold"))
+        return (self.font, size)
 
     def _draw_full(self):
         c = self.canvas
-        self._round_rect(c, 3, 3, self.W - 3, self.H - 3, 16,
+        # 卡片
+        self._round_rect(c, CARD_X0, CARD_Y0, CARD_X1, CARD_Y1, CARD_R,
                          fill=BG, outline=DIVIDER, width=1)
-        self._round_rect(c, 10, 6, 146, 134, 12, fill=PANEL, outline="")
+        # 左: 角色面板 + 角色图 + 形态芯片
+        self._round_rect(c, CHAR_X0, CHAR_Y0, CHAR_X1, CHAR_Y1, CHAR_R,
+                         fill=PANEL, outline="")
         img = self.img_form1 if self.show_form1 else self.img_form2
         if img:
-            c.create_image(78, 70, image=img)
+            # 垂直居中于「面板顶 .. 芯片顶」之间, 避免压到芯片
+            c.create_image((CHAR_X0 + CHAR_X1) // 2,
+                           (CHAR_Y0 + CHIP_Y0) // 2 - 4, image=img)
         label = "儿子" if self.show_form1 else "奶龙"
-        self._round_rect(c, 55, 138, 101, 154, 8, fill=BTN_BG, outline="")
-        c.create_text(78, 146, text=label, fill=ACCENT,
-                      font=(FONT, 10))
-        c.create_line(150, 16, 150, 148, fill=DIVIDER, width=1)
-        self._draw_data(160)
+        self._round_rect(c, CHIP_X0, CHIP_Y0, CHIP_X1, CHIP_Y1, CHIP_R,
+                         fill=BTN_BG, outline="")
+        c.create_text((CHIP_X0 + CHIP_X1) // 2, (CHIP_Y0 + CHIP_Y1) // 2,
+                      text=label, fill=ACCENT, font=self._f(FS_SMALL, True))
+        # 右: 数据区
+        self._draw_data()
+        # 右上: 图标按钮
         self._draw_buttons()
 
     def _draw_buttons(self):
+        """四个矢量图标按钮(弃用 emoji, 保证风格统一)。"""
         c = self.canvas
         for bid, cx in BTN_XS.items():
             hover = self._hover == bid
@@ -376,97 +619,131 @@ class FloatingPet:
                 bg = BTN_HOVER if hover else BTN_BG
             c.create_oval(cx - BTN_R, BTN_Y - BTN_R, cx + BTN_R, BTN_Y + BTN_R,
                           fill=bg, outline="", tags="btn")
+            self._draw_icon(c, bid, cx, BTN_Y, hover, "btn")
+
+    def _draw_icon(self, c, bid, cx, cy, hover, tag):
+        """在 (cx, cy) 画一个 16x16 内的单色矢量图标。"""
+        if bid == "close":
             fg = TEXT_HI if hover else TEXT_MD
-            if bid == "close":
-                txt = "✕"
-            elif bid == "min":
-                txt = "—"
-            else:
-                txt = "🔇" if self.mute else "🔊"
-            c.create_text(cx, BTN_Y, text=txt, fill=fg,
-                          font=(FONT, 8), tags="btn")
+            k = 3.5
+            c.create_line(cx - k, cy - k, cx + k, cy + k,
+                          fill=fg, width=1.4, capstyle="round", tags=tag)
+            c.create_line(cx - k, cy + k, cx + k, cy - k,
+                          fill=fg, width=1.4, capstyle="round", tags=tag)
+            return
 
-    def _redraw_buttons(self):
-        self.canvas.delete("btn")
-        self._draw_buttons()
+        if bid == "min":
+            fg = TEXT_HI if hover else TEXT_MD
+            c.create_line(cx - 4, cy, cx + 4, cy,
+                          fill=fg, width=1.5, capstyle="round", tags=tag)
+            return
 
-    def _draw_data(self, x0):
+        if bid == "mute":
+            on = not self.mute
+            fg = (TEXT_HI if hover else TEXT_MD) if on else TEXT_DIM
+            # 喇叭主体
+            c.create_polygon(cx - 5, cy - 2, cx - 2, cy - 2, cx + 1, cy - 5,
+                             cx + 1, cy + 5, cx - 2, cy + 2, cx - 5, cy + 2,
+                             fill=fg, outline="", tags=tag)
+            # 声波弧(静音时不画)
+            if on:
+                c.create_arc(cx - 4, cy - 5, cx + 4, cy + 5,
+                             start=-50, extent=100, style="arc",
+                             outline=fg, width=1.3, tags=tag)
+                c.create_arc(cx - 3, cy - 8, cx + 7, cy + 8,
+                             start=-50, extent=100, style="arc",
+                             outline=fg, width=1.3, tags=tag)
+            # 斜杠表示已静音
+            if not on:
+                c.create_line(cx - 6, cy + 6, cx + 6, cy - 6,
+                              fill=TEXT_DIM, width=1.3, capstyle="round",
+                              tags=tag)
+            return
+
+        # browser: 地球(圆 + 竖椭圆经线 + 赤道)
+        on = self.auto_browser
+        fg = (TEXT_HI if hover else ACCENT) if on else TEXT_DIM
+        r = 5
+        c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                      outline=fg, width=1.3, tags=tag)
+        c.create_oval(cx - r * 0.5, cy - r, cx + r * 0.5, cy + r,
+                      outline=fg, width=1.0, tags=tag)
+        c.create_line(cx - r, cy, cx + r, cy, fill=fg, width=1.0, tags=tag)
+        if not on:
+            c.create_line(cx - 6, cy + 6, cx + 6, cy - 6,
+                          fill=TEXT_DIM, width=1.3, capstyle="round", tags=tag)
+
+    def _draw_data(self):
+        """右区: 标题行 + hero 预测块 + 两列字段 + 日期块。"""
         c = self.canvas
-        d = self.data.get("direction", {})
-        pred = d.get("prediction", 0)
-        conf = d.get("confidence", 0.5)
+        d = self.data.get("direction") or {}
+        pred = 1 if d.get("prediction") == 1 else 0   # 归一化, 兼防 HERO_BG[pred] KeyError
+        conf = d.get("confidence")
+        conf = 0.5 if conf is None else float(conf)
         rate = self.data.get("base_rate", 0)
-        as_of = self.data.get("as_of", "")[:10]
+        as_of = (self.data.get("as_of") or "")[:10]
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
         arrow = "▲" if pred == 1 else "▼"
-        pct = f"{conf * 100:.2f}%"
-        rate_text = f"{rate:.2f} ₽/¥" if rate else ""
+        pct = f"{conf * 100:.1f}%"
 
-        # 标题区
-        c.create_oval(x0, 20, x0 + 6, 26, fill=ACCENT, outline="")
-        c.create_text(x0 + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
-                      font=(FONT, 10))
+        # 标题行: 币种(与右上按钮同排; 文案与字号按实测留出按钮左缘 233 的空间)
+        c.create_text(DATA_X0, HEAD_Y, anchor="w", text="CNY/RUB",
+                      fill=TEXT_DIM, font=self._f(FS_HEAD, True))
 
         if not self.data:
-            c.create_text(x0, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=(FONT, 12))
-            self._draw_horizon_bar(160, 138)
+            c.create_text(DATA_X0, HERO_ROW_Y, anchor="w",
+                          text="等待数据…", fill=TEXT_DIM,
+                          font=self._f(FS_VALUE))
+            self._draw_horizon_bar()
             return
 
-        # 容器参数
-        box_w = 120
-        box_h = 26
-        gap = 4
-        F = (FONT, 11, "bold")
+        # hero: 方向色淡染底色
+        self._round_rect(c, HERO_X0, HERO_Y0, HERO_X1, HERO_Y1, HERO_R,
+                         fill=HERO_BG[pred], outline="")
 
-        # 容器1: 涨跌 + 概率
-        box1_y = 40
-        self._round_rect(c, x0, box1_y, x0 + box_w, box1_y + box_h, 8,
-                         fill=BOX_BG, outline=DIVIDER)
-        txt1 = f"{arrow} {word}  {pct}"
-        c.create_text(x0 + box_w // 2, box1_y + box_h // 2,
-                      text=txt1, fill=color, font=F, anchor="center")
+        # 方向词 + 概率 并排一行, 整行在 hero 内垂直居中
+        c.create_text(DATA_X0, HERO_ROW_Y, anchor="w", text=f"{arrow} {word}",
+                      fill=color, font=self._f(FS_HERO_DIR, True))
+        c.create_text(HERO_PCT_X, HERO_ROW_Y, anchor="w", text=pct,
+                      fill=TEXT_HI, font=self._f(FS_HERO_PCT, True))
 
-        # 容器2: 汇率
-        box2_y = box1_y + box_h + gap
-        self._round_rect(c, x0, box2_y, x0 + box_w, box2_y + box_h, 8,
-                         fill=BOX_BG, outline=DIVIDER)
-        c.create_text(x0 + box_w // 2, box2_y + box_h // 2,
-                      text=rate_text, fill=TEXT_MD, font=F, anchor="center")
+        # 字段行: 短标签 + 值 同行左对齐(两列并排放不下日期, 实测宽 86px)
+        c.create_text(DATA_X0, INFO1_Y, anchor="w", text="汇率",
+                      fill=TEXT_DIM, font=self._f(FS_LABEL))
+        c.create_text(INFO_VALUE_X, INFO1_Y, anchor="w",
+                      text=f"{rate:.2f} ₽/¥" if rate else "—",
+                      fill=TEXT_MD, font=self._f(FS_VALUE, True))
+        c.create_text(DATA_X0, INFO2_Y, anchor="w", text="截至",
+                      fill=TEXT_DIM, font=self._f(FS_LABEL))
+        c.create_text(INFO_VALUE_X, INFO2_Y, anchor="w", text=as_of or "—",
+                      fill=TEXT_MD, font=self._f(FS_VALUE, True))
 
-        # 容器3: 日期
-        box3_y = box2_y + box_h + gap
-        self._round_rect(c, x0, box3_y, x0 + box_w, box3_y + box_h, 8,
-                         fill=BOX_BG, outline=DIVIDER)
-        c.create_text(x0 + box_w // 2, box3_y + box_h // 2,
-                      text=as_of, fill=TEXT_DIM, font=F, anchor="center")
+        # 日期块
+        self._draw_horizon_bar()
 
-        # 日期块按钮栏（紧贴容器3下方）
-        self._draw_horizon_bar(160, box3_y + box_h + gap)
-
-    def _draw_horizon_bar(self, x0, y):
-        """4 段 horizon 日期块按钮栏，当前选中高亮，hover 变色"""
+    def _draw_horizon_bar(self):
+        """4 段 horizon 日期块, 拉满数据区宽度, 当前选中高亮, hover 变色。
+        尺寸必须与 _hit_horizon 的 SEG_W / BAR_* 保持一致。"""
         c = self.canvas
-        seg_w = 30
+        label = {7: "7日", 30: "30日", 60: "60日", 90: "90日"}
         for i, h in enumerate(HORIZONS):
-            x1 = x0 + i * seg_w
-            x2 = x1 + seg_w - 2
+            x1 = BAR_X + i * SEG_W
+            x2 = x1 + SEG_W - 2
             is_active = (h == self.horizon)
             is_hov = (h in self._hovers)
             if is_active:
-                bg = ACCENT
-                fg = BG
+                bg, fg = ACCENT, BG
             elif is_hov:
-                bg = BTN_HOVER
-                fg = TEXT_HI
+                bg, fg = BTN_HOVER, TEXT_HI
             else:
-                bg = BTN_BG
-                fg = TEXT_DIM
-            self._round_rect(c, x1, y, x2, y + 16, 6, fill=bg, outline="")
-            c.create_text((x1 + x2) // 2, y + 8, text=f"{h}日", fill=fg,
-                          font=(FONT, 8, "bold"))
+                bg, fg = BTN_BG, TEXT_DIM
+            self._round_rect(c, x1, BAR_Y, x2, BAR_Y + BAR_H, 7,
+                             fill=bg, outline="")
+            c.create_text((x1 + x2) // 2, BAR_Y + BAR_H // 2,
+                          text=label.get(h, f"{h}日"), fill=fg,
+                          font=self._f(FS_CHIP, True))
 
     def run(self):
         self.root.mainloop()

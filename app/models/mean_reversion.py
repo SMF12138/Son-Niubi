@@ -8,7 +8,7 @@
 
 用法:
     from app.models.mean_reversion import mean_rev_signal
-    sig = mean_rev_signal(close, i, N, k=2.0)  # -> {'active':True/False,'pred':0/1,'strength':..}
+    sig = mean_rev_signal(close, i, N, k=2.0)  # -> {'trigger':True/False,'pred':0/1,'strength':..}
 
 所有量只用 <= i 的数据计算(滚动 MA20 / 滚动 250 日相对波动率),严格无前视。
 """
@@ -55,32 +55,6 @@ def mean_rev_signal(close: np.ndarray, i: int, N: int,
             "strength": float(abs(d) / s if s else 0.0)}
 
 
-# 便捷: 直接用 numpy 向量化替代逐点, 供回测批量使用
-def mean_rev_series(close: np.ndarray, N: int, k: float = 2.0,
-                    ma_win: int = 20, vol_win: int = 250):
-    """批量版: 返回 dict{i: {trigger,pred,strength}} 只含触发点。"""
-    m = len(close)
-    ma = np.full(m, np.nan)
-    dev = np.full(m, np.nan)
-    rel_sd = np.full(m, np.nan)
-    for t in range(ma_win - 1, m):
-        ma[t] = close[t - ma_win + 1: t + 1].mean()
-        lo = max(0, t - vol_win + 1)
-        w_v = close[lo: t + 1]
-        if len(w_v) > 30:
-            rel_sd[t] = w_v.std() / w_v.mean()
-    dev = (close - ma) / ma
-    out = {}
-    for i in range(m):
-        d = dev[i]
-        s = rel_sd[i]
-        if not np.isfinite(d) or not np.isfinite(s) or s <= 0:
-            continue
-        if abs(d) >= k * s:
-            out[i] = {"pred": 0 if d > 0 else 1,
-                      "dev": float(d), "strength": float(abs(d) / s)}
-    return out
-
 def synthetic_meanrev_score(Xf, valid, i, feat_cols, win=500):
     """
     合成均值回复分数(滚动标准化, 无前视)。
@@ -89,7 +63,6 @@ def synthetic_meanrev_score(Xf, valid, i, feat_cols, win=500):
     只用 Xf 的 <=i 历史行做均值/方差, 严格无泄漏。
     返回 dict {score, pred, strength}
     """
-    import numpy as np
     hist = valid[valid <= i]
     if len(hist) < 200:
         return {"score": 0.0, "pred": 0, "strength": 0.0}

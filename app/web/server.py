@@ -1,10 +1,9 @@
 """Flask 静态页 + JSON API。所有分析产物由 cli 生成后由本服务读取。"""
-import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, request, send_from_directory
 
 from app import config
-from app.forecast import load_forecast
+from app.forecast import load_forecast, build_projection
 from app.data import store
 
 
@@ -21,7 +20,7 @@ def create_app() -> Flask:
 
     @app.get("/api/rates")
     def api_rates():
-        limit = request.args.get("limit", default=500, type=int)
+        limit = min(max(request.args.get("limit", default=500, type=int), 30), 2000)
         df: pd.DataFrame = store.load_rates()
         tail = df.tail(max(limit, 30))
         return jsonify({
@@ -37,12 +36,15 @@ def create_app() -> Flask:
         if not config.DIRECTION_JSON.exists():
             return jsonify({"error": "方向回测不存在,请运行 python -m app.cli backtest"}), 503
         import json
-        with open(config.DIRECTION_JSON, encoding="utf-8") as f:
-            return jsonify(json.load(f))
+        try:
+            with open(config.DIRECTION_JSON, encoding="utf-8") as f:
+                return jsonify(json.load(f))
+        except (OSError, json.JSONDecodeError):
+            return jsonify({"error": "方向回测文件读取失败"}), 503
 
     @app.get("/api/oil")
     def api_oil():
-        limit = request.args.get("limit", default=500, type=int)
+        limit = min(max(request.args.get("limit", default=500, type=int), 30), 2000)
         df = store.load_oil()
         if df.empty:
             return jsonify({"error": "油价数据不存在"}), 503
@@ -99,8 +101,8 @@ def create_app() -> Flask:
 
     @app.get("/api/predict")
     def api_predict():
-        """面向普通用户的预测数据: 历史汇率 + 未来预测线 + 每日预测准确率(悬显用)。
-        返回: {hist:[{date,rate}], forecast:[{date,rate}], direction, daily_acc:[{date,acc}], model_acc}"""
+        """面向普通用户的预测数据: 历史汇率 + 未来预测线。
+        返回: {hist:[{date,rate}], forecast:[{date,rate}], direction, model_acc, uncertainty}"""
         import json
         n = request.args.get("n", default=7, type=int)
         if n not in config.N_HORIZONS:
@@ -108,21 +110,18 @@ def create_app() -> Flask:
         df = store.load_rates()
         if df.empty:
             return jsonify({"error": "无数据"}), 503
-        # 历史
+        # 历史(按当前 horizon 所需跨度截断, 前端最多只用这么多)
+        span = max(n * 5, 60)
+        tail = df.tail(span)
         hist = [{"date": d.date().isoformat(), "rate": float(v)}
-                for d, v in zip(df.index, df["cny_rub"])]
+                for d, v in zip(tail.index, tail["cny_rub"])]
         # ---- 预测投影: 以方向模型为准。 ----
-        # 不再使用 ensemble 曲线作为“方向预测”。 ensemble 是点位见顶模型,
-        # 从未在“涨跌方向”维度验证, 用它当方向制造了伪矛盾。
-        # 投影 = 方向结论(direction) × 该信号历史上的实测幅度分布(诚实、无虚构)。
         fc = load_forecast(n)
         forecast = []
         direction = None
         if fc:
             direction = fc.get("direction")
         if direction and direction.get("prediction") in (0, 1):
-            pred = direction["prediction"]
-            conf = direction.get("confidence", 0.55)
             cur = float(df["cny_rub"].iloc[-1])
             dates = fc.get("forecast_dates", []) if fc else []
             if not dates:
@@ -130,44 +129,20 @@ def create_app() -> Flask:
                 lastd = _dt.date.fromisoformat(df.index[-1].date().isoformat())
                 dates = [(lastd + _dt.timedelta(days=k + 1)).isoformat()
                          for k in range(n)]
-            sign_dir = -1.0 if pred == 0 else 1.0  # 跌=-1, 涨=+1
-            sig_w = max(0.5, min(1.0, (conf - 0.5) * 2))  # 置信度→信号强度
-            base = np.log(cur)
-            npts = len(dates)
-            # 中位幅度(取自该信号历史实测分布)
-            med = sign_dir * 0.0161 * sig_w
-            # 真实形态:
-            #   路径用 frac**0.7 → 早期变化快、后期减速(均值回归衰减), 非直线
-            #   不确定性带用 sqrt(time) 展宽(随机游走方差∝t) → 近窄远宽的喇叭口
-            #   带宽基准 ±1.2%×sqrt(frac), 随 horizon 展开
-            import math
-            for k, dt in enumerate(dates):
-                frac = (k + 1) / npts
-                path = frac ** 0.7                      # 弯曲路径
-                p50 = float(np.exp(base + med * path))
-                halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))  # 喇叭口半宽
-                lo = float(np.exp(base + med * path - halfband))
-                hi = float(np.exp(base + med * path + halfband))
-                forecast.append({"date": dt, "rate": round(p50, 4),
-                                 "low": round(min(lo, p50), 4),
-                                 "high": round(max(hi, p50), 4)})
+            forecast = build_projection(cur, direction, dates)
         # 每日预测准确率(滚动, 来自 DIRECTION_JSON 的 MOEX 期或历史回测)
         model_acc = None
         if config.DIRECTION_JSON.exists():
-            with open(config.DIRECTION_JSON, encoding="utf-8") as f:
-                dj = json.load(f)
+            try:
+                with open(config.DIRECTION_JSON, encoding="utf-8") as f:
+                    dj = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                dj = {}   # 文件正在被调度器重写: 本轮拿不到准确率, 下次刷新再取
             h = dj.get("horizons", {}).get(str(n), {})
             model_acc = {
-                "overall": h.get("moex_accuracy") or h.get("accuracy"),
-                "confident": h.get("moex_confident_accuracy") or h.get("confident_accuracy"),
+                "overall": h.get("moex_accuracy", h.get("accuracy")),
+                "confident": h.get("moex_confident_accuracy", h.get("confident_accuracy")),
             }
-        # 每日预测准确率序列(无前视滚动, 供折线悬显)
-        daily_acc = []
-        try:
-            from app.monitor_signal import daily_accuracy_series
-            daily_acc = daily_accuracy_series(roll=60)
-        except Exception:  # noqa: BLE001
-            daily_acc = []
 
         # ---- 不确定性上下文(解释为什么这个预测可能不准) ----
         uncertainty = _build_uncertainty(df, forecast, direction, n)
@@ -180,7 +155,6 @@ def create_app() -> Flask:
             "forecast": forecast,
             "direction": direction,
             "model_acc": model_acc,
-            "daily_acc": daily_acc,
             "uncertainty": uncertainty,
         })
 
@@ -198,7 +172,6 @@ def create_app() -> Flask:
 
 def _recent_trend(df) -> str:
     """返回最近 20 个交易日的滑动趋势描述(独立于模型, 供不确定性解释)。"""
-    import numpy as np
     if len(df) < 25:
         return "数据不足"
     close = df["cny_rub"].to_numpy(float)
@@ -215,53 +188,61 @@ def _recent_trend(df) -> str:
 def _build_uncertainty(df, forecast, direction, n) -> dict:
     """生成预测的不确定性标注: 说明当前信号强度 + 为什么可能不准。
     全部根据 direction 已有字段(无新计算) + 近期走势 + 置信度。"""
-    import numpy as np
     if not direction or direction.get("prediction") not in (0, 1):
-        return {"level": "unknown", "title": "暂无明确信号",
-                "points": ["模型当前没有足够清晰的信号，预测可靠程度较低，请谨慎参考。"]}
+        return {
+            "level": "mid",
+            "title": "暂无明确信号",
+            "strength": 0.0,
+            "signal": "",
+            "points": ["模型当前没有足够清晰的信号，预测可靠程度较低，请谨慎参考。"],
+            "disclaimer": "不构成投资建议；预测基于历史规律，无法保证未来表现。",
+            "badge": {"label": "信号不明", "tier": "mid"},
+        }
 
     pred = direction["prediction"]
     conf = direction.get("confidence", 0.5)
     z = direction.get("z")
     confirms = direction.get("confirms")
     signal = direction.get("signal", "")
-
     trend = _recent_trend(df)
-
-    # 强度档: 用 z 绝对值 + confirms
     az = abs(z) if z is not None else 0
-    if az > 1.5 and confirms is not None and confirms >= 3:
-        level, lname, strength = "low", "中等把握", 0.74
-        lp_note = "信号强且多个条件相互印证"
-    elif az > 1.0:
-        level, lname, strength = "medium", "方向明确但有风险", 0.68
-        lp_note = "偏离信号较强"
-    elif az > 0.5:
-        level, lname, strength = "medium", "有一定倾向", 0.60
-        lp_note = "信号中等强度"
+    d = "涨" if pred == 1 else "跌"
+
+    # 按置信率分三档: ≥65 把握较高 / ≥55 中等把握 / <55 把握有限
+    if conf >= 0.65:
+        tier, lname, strength = "high", "把握较高", 0.74
+        title = f"预测看{d} · 把握 {conf * 100:.0f}%"
+        pts = [
+            f"{trend}，模型判断未来 {n} 日看{d}。",
+            f"判断依据：莫斯科交易所(MOEX)在岸交易价与官方牌价出现显著偏离（|z|={az:.1f}）"
+            + (f"，且有{confirms}重信号相互印证。" if confirms and confirms >= 2 else "。"),
+            f"历史上该置信水平的预测准确率约 {conf * 100:.0f}%，但仍受突发事件、央行政策等不可控因素影响。",
+        ]
+    elif conf >= 0.55:
+        tier, lname, strength = "mid", "中等把握", 0.60
+        title = f"预测看{d} · 把握 {conf * 100:.0f}%"
+        pts = [
+            f"{trend}，模型判断未来 {n} 日看{d}。",
+            f"判断依据：MOEX偏离信号中等（|z|={az:.1f}），方向有一定倾向但不够明确。",
+            f"建议结合更多外部信息综合判断，不宜作为单一决策依据。",
+        ]
     else:
-        level, lname, strength = "high", "把握有限", 0.5
-        lp_note = "信号很弱，接近随机"
+        tier, lname, strength = "low", "把握有限", 0.5
+        title = f"预测看{d} · 把握 {conf * 100:.0f}%"
+        pts = [
+            f"{trend}，模型判断未来 {n} 日看{d}。",
+            f"判断依据：当前信号较弱（|z|={az:.1f}），置信度接近随机水平。",
+            f"该预测不具备参考价值，建议等待更明确的信号出现后再做判断。",
+        ]
 
-    # 信号机制解释
-    mech = ("模型依据" + ("莫斯科交易所(MOEX)在岸交易价偏离官方牌价的规律"))
-    pred_word = "回落(跌)" if pred == 0 else "上行(涨)"
-
-    # 不确定性点
-    pts = [
-        f"{trend}，而模型判断未来 {n} 日看{'跌' if pred == 0 else '涨'}。",
-        f"判断依据：{mech}——官方牌价{'高于' if pred == 0 else '低于'}市场真实成交价，历史上官价多会{'下追' if pred == 0 else '回补'}市场价。",
-    ]
-    pts.append(f"但这是历史统计规律({lp_note})，不保证每次应验；实际走势受突发事件、央行干预等政策影响。")
-
-    title = f"预测{'看跌' if pred == 0 else '看涨'} · {lname}（把握 {conf * 100:.0f}%）"
     return {
-        "level": level,
+        "level": tier,
         "title": title,
         "strength": round(strength, 3),
         "signal": signal,
         "points": pts,
         "disclaimer": "不构成投资建议；预测基于历史规律，无法保证未来表现。",
+        "badge": {"label": lname, "tier": tier},
     }
 
 

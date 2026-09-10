@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CNY/RUB · 人民币兑卢布预测</title>
+  <script>
+    // 在样式表之前应用已保存主题, 避免暗色用户首屏闪白
+    try {
+      document.documentElement.setAttribute(
+        "data-theme", localStorage.getItem("theme") || "light");
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -60,7 +67,7 @@
       </div>
       <div id="mainChart" class="chart"></div>
       <p class="chart-hint">
-        蓝线 = 历史真实汇率 · 虚线 = 未来预测 · 阴影带 = 不确定性区间
+        实线 = 历史真实汇率 · 虚线 = 未来预测 · 阴影带 = 不确定性区间
       </p>
     </section>
 

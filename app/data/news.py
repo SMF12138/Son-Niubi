@@ -10,8 +10,6 @@ from datetime import datetime
 
 import requests
 
-from app import config
-
 log = logging.getLogger(__name__)
 
 # Google News RSS 搜索关键词(英文,覆盖俄罗斯/卢布/油价/制裁)

@@ -2,15 +2,23 @@
 
 const fmtPct = (v) => (v == null ? "—" : (v * 100).toFixed(1) + "%");
 
-async function fetchJson(url) {
-  const r = await fetch(url);
-  const j = await r.json();
-  if (j.error) throw new Error(j.error);
-  return j;
+async function fetchJson(url, timeoutMs = 15000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    return j;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 let _state = { data: null, hor: 7, showHist: true, chart: null, all: {} };
 const HORIZONS = [7, 30, 60, 90];
+const REFRESH_MS = 60000;   // 页面自动刷新间隔(与快层一致)
 
 /* ---- Theme ---- */
 function initTheme() {
@@ -28,6 +36,7 @@ function initTheme() {
 /* ---- Main ---- */
 async function main() {
   initTheme();
+  bindResize();
   await Promise.all(HORIZONS.map(async (n) => {
     try { _state.all[n] = await fetchJson(`/api/predict?n=${n}`); }
     catch (e) { _state.all[n] = { _error: (e && e.message) || "加载失败" }; }
@@ -42,6 +51,36 @@ async function main() {
     _state.showHist = e.target.checked;
     drawChart();
   });
+
+  _state.timer = setInterval(refreshTick, REFRESH_MS);
+  window.addEventListener("pagehide", () => {
+    if (_state.timer) { clearInterval(_state.timer); _state.timer = null; }
+  });
+}
+
+/* 只注册一次(放在 main 里), 防抖, 避免每次 drawChart 叠加监听器 */
+function bindResize() {
+  let t = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(t);
+    t = setTimeout(() => _state.chart && _state.chart.resize(), 120);
+  });
+}
+
+/* 定时刷新当前 horizon + 健康度(快层每 60s 更新数据) */
+async function refreshTick() {
+  const n = _state.hor;
+  try {
+    const data = await fetchJson(`/api/predict?n=${n}`);
+    _state.all[n] = data;
+    if (_state.hor === n) {
+      _state.data = data;
+      renderHero(data);
+      drawChart();
+      renderUncertainty(data);
+    }
+  } catch (e) { /* 静默失败, 下个周期重试 */ }
+  loadHealth();
 }
 
 async function loadHorizonUI(n) {
@@ -67,22 +106,28 @@ function renderError(n) {
       <div class="hero-direction" style="font-size:26px">— 暂不可用</div>
       <div class="hero-confidence"><span class="conf-label">数据加载失败</span></div>
     </div></div>`;
+  const st = document.getElementById("topbarStatus");
+  if (st) st.innerHTML = `<span class="dot"></span> 数据不可用`;
 }
 
 /* ---- Hero ---- */
 function renderHero(d) {
   const el = document.getElementById("hero");
   const dir = d.direction || {};
+  const hasDir = dir.prediction === 0 || dir.prediction === 1;
   const up = dir.prediction === 1;
-  const conf = dir.confidence || 0.5;
+  const conf = dir.confidence == null ? 0.5 : dir.confidence;
   const acc = d.model_acc || {};
-  const cls = up ? "dir-up" : "dir-down";
-  const arrow = up ? "▲ 涨" : "▼ 跌";
-  const pct = (conf * 100).toFixed(0);
+  const cls = hasDir ? (up ? "dir-up" : "dir-down") : "dir-none";
+  const arrow = hasDir ? (up ? "▲ 涨" : "▼ 跌") : "— 无明确信号";
+  const pct = hasDir ? (conf * 100).toFixed(1) : "—";
 
-  let tier = "一般", bc = "badge-low";
-  if (conf >= 0.72) { tier = "较高"; bc = "badge-mid"; }
-  if (conf >= 0.8) { tier = "很高"; bc = "badge-high"; }
+  let badgeLabel = "把握有限", bc = "badge-low";
+  const uBadge = (d.uncertainty || {}).badge;
+  if (uBadge) {
+    badgeLabel = uBadge.label;
+    bc = "badge-" + uBadge.tier;
+  }
 
   const sigNames = { moex_dev: "MOEX市场偏离", meanrev_strong: "均值回复(强偏离)", mean_rev: "均值回复" };
   const sig = sigNames[dir.signal] || dir.signal || "—";
@@ -94,9 +139,9 @@ function renderHero(d) {
         <div class="hero-horizon">未来 ${d.n} 天</div>
         <div class="hero-direction">${arrow}</div>
         <div class="hero-confidence">
-          <span class="conf-value">${pct}%</span>
+          <span class="conf-value">${hasDir ? pct + "%" : "—"}</span>
           <span class="conf-label">把握程度</span>
-          <span class="conf-badge ${bc}">${tier}</span>
+          <span class="conf-badge ${bc}">${badgeLabel}</span>
         </div>
         <div class="hero-signal">信号: <b>${sig}</b>${cs}</div>
       </div>
@@ -127,10 +172,11 @@ function renderUncertainty(d) {
   const u = d.uncertainty, sec = document.getElementById("uncertSection");
   if (!u || !u.points || !u.points.length) { sec.style.display = "none"; return; }
   sec.style.display = "";
-  const lm = { low: ["中等把握", "u-mid"], medium: ["有风险", "u-warn"], high: ["把握有限", "u-high"] };
-  const l = lm[u.level] || lm.medium;
-  document.getElementById("uncertBadge").className = "uncert-badge " + l[1];
-  document.getElementById("uncertBadge").textContent = l[0];
+  const uBadge = u.badge || {};
+  const label = uBadge.label || "把握有限";
+  const tier = uBadge.tier || "low";
+  document.getElementById("uncertBadge").className = "uncert-badge u-" + tier;
+  document.getElementById("uncertBadge").textContent = label;
   document.getElementById("uncertTitle").textContent = u.title;
   document.getElementById("uncertBody").innerHTML =
     u.points.map((p) => `<p>${p}</p>`).join("") +
@@ -151,7 +197,8 @@ function getColors() {
     label: dark ? "#8A7E6E" : "#A99F8F",
     tooltip: dark ? "rgba(26,20,16,0.95)" : "rgba(44,24,16,0.92)",
     tooltipBorder: dark ? "#3D342A" : "#D6CEBD",
-    tooltipText: dark ? "#E8DFD0" : "#2C1810",
+    tooltipText: dark ? "#E8DFD0" : "#F5EFE3",
+    tooltipLabel: dark ? "#A99A85" : "#C4B7A2",
   };
 }
 
@@ -159,6 +206,7 @@ function drawChart() {
   const d = _state.data;
   if (!d) return;
   const el = document.getElementById("mainChart");
+  if (typeof echarts === "undefined") return;   // ECharts 未加载: 保留 KPI, 不抛异常
   if (!_state.chart) _state.chart = echarts.init(el);
   const C = getColors();
   const showHist = _state.showHist;
@@ -182,7 +230,8 @@ function drawChart() {
   const bandCol = dirUp ? C.bandUp : C.bandDown;
   const fcLow = d.forecast.map((p) => p.low);
   const fcHigh = d.forecast.map((p) => p.high);
-  const hasBand = fcLow.every((v) => v != null) && fcHigh.every((v) => v != null);
+  const hasBand = fcLow.length > 0 && fcHigh.length > 0 &&
+    fcLow.every((v) => v != null) && fcHigh.every((v) => v != null);
   const bandPad = showHist ? Array(histDates.length - 1).fill(null) : [];
   const anchorBand = showHist && histVals.length ? histVals[histVals.length - 1] : d.current_rate;
   const lowS = hasBand ? bandPad.concat([anchorBand], fcLow) : [];
@@ -198,14 +247,14 @@ function drawChart() {
       borderWidth: 1,
       textStyle: { color: C.tooltipText, fontSize: 12, fontFamily: "Georgia, 'Times New Roman', serif" },
       formatter: (params) => {
-        let s = `<div style="font-weight:600;margin-bottom:4px;color:${C.label};font-size:11px">${params[0].axisValue}</div>`;
+        let s = `<div style="font-weight:600;margin-bottom:4px;color:${C.tooltipLabel};font-size:11px">${params[0].axisValue}</div>`;
         params.forEach((it) => {
           if (it.value == null) return;
           s += `<div>${it.marker} ${it.seriesName}: <b>${Number(it.value).toFixed(4)}</b></div>`;
         });
         const fp = d.forecast.find((x) => x.date === params[0].axisValue);
         if (fp && fp.low != null) {
-          s += `<div style="margin-top:3px;color:${C.label};font-size:11px">区间: ${fp.low.toFixed(4)} ~ ${fp.high.toFixed(4)}</div>`;
+          s += `<div style="margin-top:3px;color:${C.tooltipLabel};font-size:11px">区间: ${fp.low.toFixed(4)} ~ ${fp.high.toFixed(4)}</div>`;
         }
         return s;
       },
@@ -257,7 +306,6 @@ function drawChart() {
       },
     ],
   }, true);
-  window.addEventListener("resize", () => _state.chart && _state.chart.resize());
 }
 
 /* ---- Health ---- */
@@ -273,6 +321,9 @@ async function loadHealth() {
     else if (h.status === "alert") { status = "预警"; cls = "h-bad"; desc = "预测规律明显减弱。"; }
     else { status = "数据不足"; cls = "h-warn"; desc = "样本不足，暂无法评估。"; }
     const barW = Math.min(100, Math.max(0, acc * 100));
+    // 阈值来自服务端(monitor_signal 常量), 避免与后端脱节
+    const warnAt = (h.alert_threshold != null ? h.alert_threshold : 0.55) * 100;
+    const goodAt = (h.healthy_baseline != null ? h.healthy_baseline : 0.65) * 100;
     el.innerHTML = `
       <div class="health-row">
         <span class="health-badge ${cls}">${status}</span>
@@ -281,18 +332,28 @@ async function loadHealth() {
       </div>
       <div class="health-bar">
         <div class="health-fill ${cls}" style="width:${barW}%"></div>
-        <div class="health-marker warn" style="left:55%"></div>
-        <div class="health-marker good" style="left:65%"></div>
+        <div class="health-marker warn" style="left:${warnAt}%"></div>
+        <div class="health-marker good" style="left:${goodAt}%"></div>
       </div>
       <div class="health-desc">${desc}</div>`;
   } catch (e) {
-    el.innerHTML = `<div class="health-desc" style="color:var(--up)">健康度暂不可用：${e.message}</div>`;
+    el.textContent = "";
+    const div = document.createElement("div");
+    div.className = "health-desc";
+    div.style.color = "var(--up)";
+    div.textContent = "健康度暂不可用：" + ((e && e.message) || "未知错误");
+    el.appendChild(div);
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
   main().catch((e) => {
-    document.getElementById("hero").innerHTML =
-      `<div class="hero-loading" style="color:var(--up)">加载失败：${e.message}</div>`;
+    const hero = document.getElementById("hero");
+    hero.textContent = "";
+    const div = document.createElement("div");
+    div.className = "hero-loading";
+    div.style.color = "var(--up)";
+    div.textContent = "加载失败：" + ((e && e.message) || "未知错误");
+    hero.appendChild(div);
   });
 });

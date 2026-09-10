@@ -6,7 +6,11 @@ __pycache__/
 # Data artifacts (大文件/可重建)
 data/rates.db
 data/app.db
+data/*.db-wal
+data/*.db-shm
 data/*.json
+
+# Pet assets (data/pet/*.png|*.wav) 是应用运行必需资源, 随仓库提交
 
 # Logs & temp
 logs/

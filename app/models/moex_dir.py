@@ -29,13 +29,19 @@ from app.models.meanrev_dir import MeanRevDirectionPredictor
 log = logging.getLogger(__name__)
 
 # === 硬编码默认校准值(fallback) ===
+# z15 > z10 > z05 > z00 单调递减(偏离越大置信越高)
 _DEFAULT_CAL = {
-    7:  {"z15": 0.79, "z10": 0.65, "z05": 0.72, "z00": 0.62},
-    30: {"z15": 0.75, "z10": 0.59, "z05": 0.65, "z00": 0.56},
-    60: {"z15": 0.72, "z10": 0.62, "z05": 0.62, "z00": 0.54},
-    90: {"z15": 0.71, "z10": 0.60, "z05": 0.57, "z00": 0.50},
+    7:  {"z15": 0.79, "z10": 0.72, "z05": 0.65, "z00": 0.62},
+    30: {"z15": 0.75, "z10": 0.65, "z05": 0.60, "z00": 0.56},
+    60: {"z15": 0.72, "z10": 0.65, "z05": 0.60, "z00": 0.54},
+    90: {"z15": 0.71, "z10": 0.62, "z05": 0.57, "z00": 0.50},
 }
-_DEFAULT_CAP = {7: 0.72, 30: 0.68, 60: 0.69, 90: 0.68}
+_DEFAULT_CAP = {
+    7:  {"z15": 0.79, "z10": 0.72, "z05": 0.65, "z00": 0.62},
+    30: {"z15": 0.75, "z10": 0.65, "z05": 0.60, "z00": 0.56},
+    60: {"z15": 0.72, "z10": 0.65, "z05": 0.60, "z00": 0.54},
+    90: {"z15": 0.71, "z10": 0.62, "z05": 0.57, "z00": 0.50},
+}
 
 _CALIBRATION_PATH = config.DATA_DIR / "calibration.json"
 _CAL_MAX_AGE_SEC = 48 * 3600  # 48小时有效
@@ -44,21 +50,30 @@ _CAL_MAX_AGE_SEC = 48 * 3600  # 48小时有效
 def _load_calibration():
     """从 JSON 加载动态校准值, 过期或缺失则返回 None。"""
     if not _CALIBRATION_PATH.exists():
-        return None, None
+        return None, None, None
     try:
         with open(_CALIBRATION_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
         generated = data.get("generated_ts", 0)
-        if time.time() - generated > _CAL_MAX_AGE_SEC:
-            log.info("校准文件过期(%.1f小时前), 用默认值", (time.time() - generated) / 3600)
-            return None, None
+        age = time.time() - generated
+        if age > _CAL_MAX_AGE_SEC or age < 0:   # age<0: 时间戳来自未来, 一律视为无效
+            log.info("校准文件过期(%.1f小时前), 用默认值", age / 3600)
+            return None, None, None
         cal = {int(k): v for k, v in data["cal"].items()}
-        cap = {int(k): v for k, v in data["cap"].items()}
-        log.info("加载动态校准值(%.1f小时前生成)", (time.time() - generated) / 3600)
-        return cal, cap
+        raw_cap = data.get("cap", {})
+        # 兼容新格式(dict per-horizon)和旧格式(scalar per-horizon)
+        cap = {}
+        for k, v in raw_cap.items():
+            if isinstance(v, dict):
+                cap[int(k)] = v
+            else:
+                cap[int(k)] = _DEFAULT_CAP.get(int(k), _DEFAULT_CAL.get(int(k), {}))
+        meanrev = {int(k): v for k, v in data.get("meanrev", {}).items()}
+        log.info("加载动态校准值(%.1f小时前生成)", age / 3600)
+        return cal, cap, meanrev
     except Exception as e:
         log.warning("加载校准文件失败: %s, 用默认值", e)
-        return None, None
+        return None, None, None
 
 
 class MoexDirectionPredictor:
@@ -72,9 +87,13 @@ class MoexDirectionPredictor:
         self._moex_hlr = None      # {row_index: (high-low)/close 日内幅
         self._z = None             # {row_index: 滚动 z(win150)} 用于连续偏离确认}
         # 动态校准: 优先 JSON, 回退默认值
-        cal, cap = _load_calibration()
+        cal, cap, meanrev = _load_calibration()
         self._cal = cal or _DEFAULT_CAL
         self._cap = cap or _DEFAULT_CAP
+        self._meanrev_conf = meanrev or {}
+        # 将 meanrev 校准传给 fallback
+        if self._meanrev_conf:
+            self._fallback.set_calibration(self._meanrev_conf)
 
     def attach_moex(self, dates, off_lp, moex_map, hl_map=None):
         """预计算每个官方交易日的 raw_dev + MOEX 收盘/日内幅(用于多重确认)。
@@ -163,7 +182,7 @@ class MoexDirectionPredictor:
                     if len(hist_hlr) >= 30:
                         if self._moex_hlr[i] >= float(np.median(hist_hlr)):
                             confirms += 1
-                # 确认5: 油价20日动量与 zdev 同向(油价涨→卢布弱→CNY/RUB涨)
+                # 确认4: 油价20日动量与 zdev 同向(油价涨→卢布走强→CNY/RUB跌)
                 feat_names = ctx.get("feat_names", [])
                 Xf = ctx.get("Xf")
                 if Xf is not None and "brent_ret20" in feat_names:
@@ -172,11 +191,11 @@ class MoexDirectionPredictor:
                     if pos_of2 < len(ctx["valid"]) and ctx["valid"][pos_of2] == i:
                         br20 = Xf[i, br_idx]
                         if not np.isnan(br20):
-                            # 油价涨→RUB弱→CNY/RUB涨(pred=1), 与 z 同向则确认
-                            oil_pred = 0 if br20 > 0 else 1  # 油价涨→CNY/RUB跌
+                            # 油价涨→卢布走强→CNY/RUB跌(pred=0), 与 z 同向则确认
+                            oil_pred = 0 if br20 > 0 else 1
                             if oil_pred == pred:
                                 confirms += 1
-                # 确认6: 近7日新闻情绪与方向一致
+                # 确认5: 近7日新闻情绪与方向一致
                 if Xf is not None and "sentiment_7d" in feat_names:
                     sent_idx = feat_names.index("sentiment_7d")
                     pos_of3 = np.searchsorted(ctx["valid"], i)
@@ -187,6 +206,7 @@ class MoexDirectionPredictor:
                             sent_pred = 0 if sent7 < 0 else 1
                             if sent_pred == pred:
                                 confirms += 1
+                # 确认6: 连续偏离天数(z 方向一致 ≥ 2 日)
                 if self._z is not None and self._moex_dev is not None:
                     zdays = [j for (j, _) in self._dev_hist if j <= i][-6:]
                     streak = 0
@@ -202,15 +222,17 @@ class MoexDirectionPredictor:
                 # === 置信度: 按 horizon 分别校准(动态 or 默认) ===
                 cal_n = min(self._cal.keys(), key=lambda k: abs(k - N))
                 tbl = self._cal[cal_n]
+                cap_tbl = self._cap.get(cal_n, _DEFAULT_CAP.get(cal_n, {}))
                 if az > 1.5:
-                    conf = tbl["z15"]
+                    bucket_key = "z15"
                 elif az > 1.0:
-                    conf = tbl["z10"]
+                    bucket_key = "z10"
                 elif az > 0.5:
-                    conf = tbl["z05"]
+                    bucket_key = "z05"
                 else:
-                    conf = tbl["z00"]
-                cap = self._cap.get(cal_n, 0.7)
+                    bucket_key = "z00"
+                conf = tbl[bucket_key]
+                cap = cap_tbl.get(bucket_key, 0.7)
                 if confirms >= 3:
                     conf = min(conf + 0.02, cap)
                 elif confirms >= 2:
@@ -270,7 +292,7 @@ def run_direction_backtest(df, oil_df=None, sentiment_df=None, rate_df=None):
         up = sum(1 for i in starts if lp[i + N] > lp[i])
         bl = max(up, total - up) / total if total else 0.5
         horizons[str(N)] = {
-            "N": N, "windows": total, "accuracy": round(correct / total, 4),
+            "N": N, "windows": total, "accuracy": round(correct / total, 4) if total else 0,
             "confident_accuracy": round(conf_c / conf_t, 4) if conf_t else 0,
             "confident_windows": conf_t,
             "confident_ratio": round(conf_t / total, 4) if total else 0,
@@ -313,8 +335,6 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
         # 每档的命中/总数
         bucket_hits = {k: 0 for k, _ in z_buckets}
         bucket_total = {k: 0 for k, _ in z_buckets}
-        moex_conf_hits = 0
-        moex_conf_total = 0
 
         for i in range(first, last + 1):
             ctx = {"lp": lp, "i": i, "Xf": Xf, "valid": valid, "feat_names": feat_names}
@@ -330,10 +350,6 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
                     bucket_hits[bk] += int(hit)
                     bucket_total[bk] += 1
                     break
-            # 高置信统计
-            if r["confidence"] > 0.6:
-                moex_conf_hits += int(hit)
-                moex_conf_total += 1
 
         # 计算各档命中率
         cal_n = {}
@@ -344,19 +360,49 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
                 # 样本不足, 回退默认值
                 default_tbl = _DEFAULT_CAL.get(N, _DEFAULT_CAL[7])
                 cal_n[bk] = default_tbl.get(bk, 0.6)
+
+        # 强制单调: z00 <= z05 <= z10 <= z15(偏离越大置信越高)
+        monotonic_keys = ["z00", "z05", "z10", "z15"]
+        for j in range(1, len(monotonic_keys)):
+            prev_k, cur_k = monotonic_keys[j - 1], monotonic_keys[j]
+            if cal_n[cur_k] < cal_n[prev_k]:
+                cal_n[cur_k] = cal_n[prev_k]
         cal[N] = cal_n
 
-        # 高置信上限
-        if moex_conf_total >= 20:
-            cap[N] = round(moex_conf_hits / moex_conf_total, 4)
-        else:
-            cap[N] = _DEFAULT_CAP.get(N, 0.7)
+        # 分档 cap = 该桶校准准确率
+        cap[N] = dict(cal_n)
+
+    # === MeanRev strong 信号校准: 统计各 N 下 meanrev_strong 的实际命中率 ===
+    from app.models.meanrev_dir import MeanRevDirectionPredictor
+    mr_pred = MeanRevDirectionPredictor()
+    mr_hits = {N: 0 for N in config.N_HORIZONS}
+    mr_totals = {N: 0 for N in config.N_HORIZONS}
+    for N in config.N_HORIZONS:
+        last = m - 1 - N
+        if first > last:
+            continue
+        for i in range(first, last + 1):
+            ctx = {"lp": lp, "i": i, "Xf": Xf, "valid": valid, "feat_names": feat_names}
+            r = mr_pred.predict_direction(ctx, N)
+            if r.get("signal") != "meanrev_strong":
+                continue
+            actual = 1 if lp[i + N] > lp[i] else 0
+            hit = r["prediction"] == actual
+            mr_hits[N] += int(hit)
+            mr_totals[N] += 1
+    meanrev_conf = {}
+    for N in config.N_HORIZONS:
+        if mr_totals[N] >= 20:
+            meanrev_conf[str(N)] = round(mr_hits[N] / mr_totals[N], 4)
+            log.info("MeanRev N=%d strong: %d/%d = %.1f%%", N,
+                     mr_hits[N], mr_totals[N], mr_hits[N] / mr_totals[N] * 100)
 
     result = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "generated_ts": time.time(),
         "cal": {str(k): v for k, v in cal.items()},
         "cap": {str(k): v for k, v in cap.items()},
+        "meanrev": meanrev_conf,
     }
     with open(_CALIBRATION_PATH, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1)
