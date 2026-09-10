@@ -28,7 +28,7 @@
 ### P0
 
 1. **校准非单调性调查**：N=7 的 z>1.0 档命中率低于 z>0.5 档，疑样本量不足。
-2. **MeanRev base_conf 校准**：`base_conf` 从 0.73 起步，需对 `meanrev_strong` 子集独立统计。
+2. ~~**MeanRev base_conf 校准**：`base_conf` 从 0.73 起步，需对 `meanrev_strong` 子集独立统计。~~ ✅ 已做：实测命中率写入 `calibration.json` 的 `meanrev` 段（`calibrate_moex_z`）；缺失/过期时的回退值改为镜像实测的**分档表** `_DEFAULT_MEANREV`（7:0.5386/30:0.5775/60:0.657/90:0.7482），不再用单一 0.73（该值把 N=7 高估 19pp）。实测证明：`calibration.json` 存在时本改动对回测输出**零影响**（默认值根本不被取用）。
 
 ### P1
 

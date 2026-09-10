@@ -17,6 +17,11 @@ from app.models.mean_reversion import synthetic_meanrev_score
 
 MREV_FEATS = ["ma60_dev", "ma20_dev", "mom20", "pos60", "cusd_mom20"]
 
+# 校准缺失/过期时的回退命中率, 镜像 data/calibration.json 的 meanrev 段实测值。
+# 取代原先单一常数 0.73 —— 后者把 N=7 抬到 0.73, 比实测 0.5386 高估 19pp。
+# 必须 > 0.5: 强信号分支用 conf 决定 p_up 与最终方向, 取到 0.5 会让 score>0 被判成跌。
+_DEFAULT_MEANREV = {7: 0.5386, 30: 0.5775, 60: 0.657, 90: 0.7482}
+
 
 class MeanRevDirectionPredictor:
     name = "MeanRev-DIR"
@@ -60,8 +65,8 @@ class MeanRevDirectionPredictor:
 
         # 强信号: 直接采用均值回复方向, 高置信
         if strength >= 1.0:
-            # 数据驱动: 用校准的实际命中率, 加上小幅度 strength 加成
-            base_conf = self._meanrev_conf.get(N, 0.73)
+            # 数据驱动: 用校准的实测命中率, 缺失则回退到分档默认值
+            base_conf = self._meanrev_conf.get(N, _DEFAULT_MEANREV.get(N, 0.55))
             base_conf = min(base_conf + strength * 0.01, 0.82)
             if confirms >= 1:
                 base_conf = min(base_conf + 0.02, 0.82)

@@ -12,10 +12,15 @@ import logging
 
 import numpy as np
 
+from app import config
+
 log = logging.getLogger(__name__)
 
 WINDOW_DAYS = 90       # 滚动评估窗口(已实现的 7 日预测)
 N_HOR = 7
+# 阈值。2026-09-10 对齐生产窗口(config.ZDEV_WINDOW=150)后实测:
+#   win=150 -> rolling_acc 71.1% (n=90, healthy) | win=250 -> 67.8% (healthy)
+# 两窗都在 0.65 之上, 故健康线保持 0.65(余量 ~6pp), 0.55 预警线远低, 无需重定。
 ALERT_THRESHOLD = 0.55  # 衰减告警线
 HEALTHY_BASELINE = 0.65
 
@@ -34,12 +39,13 @@ def evaluate() -> dict:
     pos = np.array([idx_of[d] for d in common])
     rawdev = np.array([np.log(moex[d]) - lp[idx_of[d]] for d in common])
 
-    # 滚动标准化 zdev(无前视)
+    # 滚动标准化 zdev(无前视)。窗口必须与生产模型一致(config.ZDEV_WINDOW),
+    # 否则这里评估的是另一个信号, 健康度卡片会失真。
     z = np.full(len(common), np.nan)
     for k in range(len(common)):
         h = rawdev[:k + 1]
         if len(h) >= 60:
-            a = h[-250:]
+            a = h[-config.ZDEV_WINDOW:]
             z[k] = (rawdev[k] - a.mean()) / (a.std() + 1e-9)
 
     # 只评估"已实现"的 7 日预测(i+N < m), 取最近 WINDOW_DAYS 个

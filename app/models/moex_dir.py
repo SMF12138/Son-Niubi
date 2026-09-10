@@ -124,7 +124,7 @@ class MoexDirectionPredictor:
         idxs = [j for (j, _) in seq]
         for t in range(len(seq)):
             if t + 1 >= 60:
-                a = np.array(devs[max(0, t + 1 - 150):t + 1])
+                a = np.array(devs[max(0, t + 1 - config.ZDEV_WINDOW):t + 1])
                 self._z[idxs[t]] = (devs[t] - a.mean()) / (a.std() + 1e-9)
 
     def predict_direction(self, ctx, N):
@@ -153,7 +153,7 @@ class MoexDirectionPredictor:
         if dev_i is not None:
             past = [rd for (j, rd) in self._dev_hist if j <= i]
             if len(past) >= 60:
-                arr = np.array(past[-150:])   # 150天窗:实测优于100/200
+                arr = np.array(past[-config.ZDEV_WINDOW:])
                 mu = arr.mean(); sd = arr.std() + 1e-9
                 z = (dev_i - mu) / sd
                 pred = 1 if z > 0 else 0
