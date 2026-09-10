@@ -76,6 +76,14 @@ class FloatingPet:
     def _on_click(self, e):
         # ✕ 关闭
         if self.W - 26 < e.x < self.W - 4 and 4 < e.y < 26:
+            # 关闭桌宠 + 终止 Flask 服务
+            import subprocess
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_Process -Filter \"Name='pythonw.exe'\" "
+                 "| Where-Object { $_.CommandLine -match 'app.cli serve' } "
+                 "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                timeout=5, capture_output=True)
             self.root.destroy()
             return
         # 🔊/🔇 静音
