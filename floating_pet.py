@@ -282,7 +282,7 @@ class FloatingPet:
             self.root.after(200, self._draw)  # 200ms 更新一次
 
     def _draw_ball(self):
-        """悬浮球：第一版风格（黄色圆+绿眼睛+呼吸动画）"""
+        """悬浮球：第一版风格（黄色圆+绿眼睛+呼吸动画），简化为48x48"""
         c = self.canvas
         cx, cy = W_MIN // 2, H_MIN // 2
         
@@ -290,12 +290,12 @@ class FloatingPet:
         breath = math.sin(self.frame * math.pi / 2) * 2
         cy += breath
         
-        # 身体（黄色圆）
+        # 身体（黄色圆，半径20）
         body_r = 20
         c.create_oval(cx - body_r, cy - body_r, cx + body_r, cy + body_r,
                       fill="#FFD93D", outline="#D4A843", width=2)
         
-        # 眼睛（绿色虹膜）
+        # 眼睛（绿色虹膜，居中偏上）
         eye_x, eye_y = cx - 3, cy - 2
         eye_r = 7
         # 白底
