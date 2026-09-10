@@ -27,5 +27,8 @@ start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 REM Launch desktop pet (minimized console)
 start /min "" ".venv\Scripts\python.exe" floating_pet.py
 
+REM Open browser (once, on startup only)
+start "" "http://127.0.0.1:8000"
+
 REM Exit this cmd window
 exit /b 0

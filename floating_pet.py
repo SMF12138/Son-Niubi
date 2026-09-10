@@ -52,7 +52,6 @@ class FloatingPet:
 
         self.show_form1 = False
         self.mute = False
-        self._last_browser_time = 0  # 上次打开浏览器的时间戳
         self.data = {}
         self.last_mtime = 0
         self._drag_data = {"x": 0, "y": 0}
@@ -125,13 +124,12 @@ class FloatingPet:
             self.mute = not self.mute
             self._draw()
             return
-        # 左侧角色区 → 切换形态 + 播放语音 + 弹出网页
+        # 左侧角色区 → 切换形态 + 播放语音
         if e.x < 170:
             self.show_form1 = not self.show_form1
             self._draw()
             if not self.mute:
                 self._play_voice()
-            self._open_browser()
             return
         # 右侧数据区 → 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
@@ -140,20 +138,6 @@ class FloatingPet:
         dx = e.x - self._drag_data["x"]
         dy = e.y - self._drag_data["y"]
         self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
-
-    def _open_browser(self):
-        """打开预测页面：10 秒内不重复弹出。"""
-        import time as _time
-        now = _time.time()
-        if now - self._last_browser_time < 10:
-            return
-        self._last_browser_time = now
-        import ctypes
-        try:
-            ctypes.windll.shell32.ShellExecuteW(
-                None, "open", "http://127.0.0.1:8000", None, None, 1)
-        except Exception:
-            pass
 
     def _play_voice(self):
         """播放语音：winsound 直接播 wav（零窗口、毫秒级）。"""
