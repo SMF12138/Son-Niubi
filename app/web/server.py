@@ -146,6 +146,8 @@ def create_app() -> Flask:
 
         # ---- 不确定性上下文(解释为什么这个预测可能不准) ----
         uncertainty = _build_uncertainty(df, forecast, direction, n)
+        # 校准新鲜度: 过期时把握度已静默回退到内置默认表, 必须让界面能显示出来
+        from app.models.moex_dir import calibration_status
 
         return jsonify({
             "as_of": df.index[-1].date().isoformat(),
@@ -156,6 +158,7 @@ def create_app() -> Flask:
             "direction": direction,
             "model_acc": model_acc,
             "uncertainty": uncertainty,
+            "calibration": calibration_status(),
         })
 
     @app.get("/api/health")

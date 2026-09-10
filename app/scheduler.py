@@ -126,8 +126,10 @@ def _loop():
                 except Exception as e:
                     log.warning("[fast] update failed: %s", e)
 
-            # 慢层: 每天 09:00 MSK 跑完整回测+校准
-            if (now_dt.hour == UPDATE_HOUR and now_dt.minute >= UPDATE_MINUTE
+            # 慢层: 每天 09:00 MSK 及之后跑完整回测+校准。
+            # 用 >= 而不是 == 是为了「补跑」: 机器在 09:00 那一小时没开着时, 当天稍后启动或运行
+            # 仍会补上; 否则会一路跳过到次日, 校准文件超过 48h 后被静默回退到内置默认表。
+            if ((now_dt.hour, now_dt.minute) >= (UPDATE_HOUR, UPDATE_MINUTE)
                     and last_slow_date != now_dt.date()):
                 try:
                     _run_full_update()

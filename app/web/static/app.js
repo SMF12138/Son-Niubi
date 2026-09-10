@@ -178,8 +178,16 @@ function renderUncertainty(d) {
   document.getElementById("uncertBadge").className = "uncert-badge u-" + tier;
   document.getElementById("uncertBadge").textContent = label;
   document.getElementById("uncertTitle").textContent = u.title;
+  // 校准回退到内置默认表时必须可见 —— 否则把握度会无声地换成另一套数字
+  const cal = d.calibration;
+  const calNote = (cal && cal.is_fallback)
+    ? `<p class="uncert-disc" style="color:var(--up)">注意：动态校准不可用（${
+        cal.age_h == null ? "文件缺失或损坏" : "已过期 " + cal.age_h + " 小时"
+      }），当前把握度已回退到内置默认表，可能偏离实测精度。</p>`
+    : "";
   document.getElementById("uncertBody").innerHTML =
     u.points.map((p) => `<p>${p}</p>`).join("") +
+    calNote +
     `<p class="uncert-disc">${u.disclaimer || ""}</p>`;
 }
 

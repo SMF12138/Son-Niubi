@@ -57,7 +57,7 @@ def _load_calibration():
         generated = data.get("generated_ts", 0)
         age = time.time() - generated
         if age > _CAL_MAX_AGE_SEC or age < 0:   # age<0: 时间戳来自未来, 一律视为无效
-            log.info("校准文件过期(%.1f小时前), 用默认值", age / 3600)
+            log.warning("校准文件过期(%.1f小时前), 用默认值 —— 把握度已回退到内置表", age / 3600)
             return None, None, None
         cal = {int(k): v for k, v in data["cal"].items()}
         raw_cap = data.get("cap", {})
@@ -74,6 +74,23 @@ def _load_calibration():
     except Exception as e:
         log.warning("加载校准文件失败: %s, 用默认值", e)
         return None, None, None
+
+
+def calibration_status() -> dict:
+    """当前校准文件状态, 供 API/界面显示 —— 回退到内置默认表时必须让用户看得见。
+
+    返回 {"age_h": 小时数或 None(文件缺失/损坏), "is_fallback": 是否正在用默认值}。
+    """
+    if not _CALIBRATION_PATH.exists():
+        return {"age_h": None, "is_fallback": True}
+    try:
+        with open(_CALIBRATION_PATH, "r", encoding="utf-8") as f:
+            generated = json.load(f).get("generated_ts", 0)
+    except Exception:
+        return {"age_h": None, "is_fallback": True}
+    age = time.time() - generated
+    return {"age_h": round(age / 3600, 1),
+            "is_fallback": age > _CAL_MAX_AGE_SEC or age < 0}
 
 
 class MoexDirectionPredictor:
