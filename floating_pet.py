@@ -251,13 +251,29 @@ def _load_config():
 
 
 def _save_config(cfg):
-    """写桌宠配置。失败静默, 不打断交互。"""
+    """写桌宠配置。**读-改-写合并**: 只带部分键写入会抹掉其它键(如存位置时清掉开关)。失败静默。"""
     try:
         CONFIG_PATH.parent.mkdir(exist_ok=True)
+        cur = _load_config()
+        cur.update(cfg)
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=1)
+            json.dump(cur, f, ensure_ascii=False, indent=1)
     except Exception:
         pass
+
+
+def _clamp_pos(root, x, y, w, h):
+    """把窗口左上角夹进当前屏幕范围。
+
+    必要性: 存下来的位置在改分辨率/换显示器后可能整个落在屏外, 用户既看不到也拖不回来。
+    取值非法(非数值)返回 None, 由调用方回退默认位。
+    """
+    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        return None
+    sw = root.winfo_screenwidth()
+    sh = root.winfo_screenheight()
+    return (max(0, min(int(x), max(0, sw - w))),
+            max(0, min(int(y), max(0, sh - h))))
 
 
 # hero 预测块底色: 方向色按 HERO_TINT 混到卡片底上, 一眼看出涨跌
@@ -310,9 +326,13 @@ class FloatingPet:
         self.W = W_FULL
         self.H = H_FULL
         self.minimized = False
-        self._save_pos = None
-        self.root.geometry(
-            f"{self.W}x{self.H}+{sw - self.W - 30}+{sh - self.H - 60}")
+        self._save_pos = None       # 仅服务"最小化→恢复", 不持久化
+        cfg = _load_config()
+        pos = _clamp_pos(self.root, cfg.get("pos_x"), cfg.get("pos_y"),
+                         self.W, self.H)
+        if pos is None:
+            pos = (sw - self.W - 30, sh - self.H - 60)
+        self.root.geometry(f"{self.W}x{self.H}+{pos[0]}+{pos[1]}")
 
         self.canvas = tk.Canvas(self.root, width=self.W, height=self.H,
                                 bg=TRANSPARENT_KEY, highlightthickness=0)
@@ -320,10 +340,10 @@ class FloatingPet:
 
         self.show_form1 = False
         self.mute = False
-        self.auto_browser = bool(_load_config().get("auto_browser", True))
+        self.auto_browser = bool(cfg.get("auto_browser", True))
         self.data = {}
         self.last_mtime = 0
-        self.horizon = 7
+        self.horizon = cfg.get("horizon") if cfg.get("horizon") in HORIZONS else 7
         self._hovers = set()
         self._drag_offset = (0, 0)   # 按下时 光标屏幕坐标 - 窗口左上角
         self._dragging = False       # 只有真正落在拖拽区才为 True
@@ -473,11 +493,16 @@ class FloatingPet:
     def _on_release(self, _e):
         # 悬浮球上"没移动的按下" = 点击 → 恢复窗口; 拖动过则只结束拖拽
         clicked_ball = self._dragging and self.minimized and not self._moved
+        moved = self._moved
         self._dragging = False
         self._press_pos = None
         self._moved = False
         if clicked_ball:
             self._restore()
+            return
+        if moved:      # 拖完才落盘, 避免每次点击都写文件
+            _save_config({"pos_x": self.root.winfo_x(),
+                          "pos_y": self.root.winfo_y()})
 
     def _on_motion(self, e):
         if self.minimized:
@@ -542,6 +567,7 @@ class FloatingPet:
         self.data = {}
         self._read_forecast()
         self._draw()
+        _save_config({"horizon": h})
 
     # ---------- 绘制 ----------
 
