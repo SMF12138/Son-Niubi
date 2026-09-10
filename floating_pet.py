@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parent
 FORECAST_FILE = ROOT / "data" / "forecast_7.json"
 FORM1 = ROOT / "data" / "pet" / "form1.png"  # 侧面穿T恤
 FORM2 = ROOT / "data" / "pet" / "form2.png"  # 正面无衣
-VOICE_FILE = Path(r"C:\Users\86177\Desktop\语音.wav")
+VOICE1 = ROOT / "data" / "pet" / "voice1.wav"  # 形态一语音
+VOICE2 = ROOT / "data" / "pet" / "voice2.wav"  # 形态二语音
 
 BG = "#000000"
 TEXT_HI = "#FFFFFF"
@@ -86,7 +87,7 @@ class FloatingPet:
         if e.x < 170:
             self.show_form1 = not self.show_form1
             self._draw()
-            if self.show_form1 and not self.mute:
+            if not self.mute:
                 self._play_voice()
             return
         # 右侧数据区 → 拖拽
@@ -99,11 +100,12 @@ class FloatingPet:
 
     def _play_voice(self):
         """播放语音：winsound 直接播 wav（零窗口、毫秒级）。"""
-        if not VOICE_FILE.exists():
+        voice = VOICE1 if self.show_form1 else VOICE2
+        if not voice.exists():
             return
         import winsound
         try:
-            winsound.PlaySound(str(VOICE_FILE), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            winsound.PlaySound(str(voice), winsound.SND_FILENAME | winsound.SND_ASYNC)
         except Exception:
             pass
 
