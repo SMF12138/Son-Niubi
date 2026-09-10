@@ -678,10 +678,12 @@ class FloatingPet:
         c = self.canvas
         d = self.data.get("direction") or {}
         pred = 1 if d.get("prediction") == 1 else 0   # 归一化, 兼防 HERO_BG[pred] KeyError
+        # 下面三个字段一律类型收敛: forecast JSON 一旦被写坏, 桌宠无控制台, 崩了没人知道
         conf = d.get("confidence")
-        conf = 0.5 if conf is None else float(conf)
-        rate = self.data.get("base_rate", 0)
-        as_of = (self.data.get("as_of") or "")[:10]
+        conf = conf if isinstance(conf, (int, float)) else 0.5
+        rate = self.data.get("base_rate")
+        rate = rate if isinstance(rate, (int, float)) else 0
+        as_of = str(self.data.get("as_of") or "")[:10]
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
