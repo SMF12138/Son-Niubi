@@ -48,7 +48,7 @@ DOWN_COLOR = "#35D0A0"   # 跌（绿）
 IMG_TARGET_H = 120       # 竖图按高度适配
 IMG_TARGET_W = 118       # 方图按宽度适配
 
-W_FULL, H_FULL = 300, 200
+W_FULL, H_FULL = 300, 165
 W_MIN, H_MIN = 48, 48
 
 BTN_R = 7
@@ -188,7 +188,7 @@ class FloatingPet:
 
     def _hit_horizon(self, x, y):
         """日期块区: 数据区右半(>=160), y∈[146,164] 为 4 段按钮. 返回段对应的 horizon 或 None."""
-        if x < 160 or not (136 <= y <= 152):
+        if x < 160 or not (150 <= y <= 165):
             return None
         seg_w = 30
         idx = int((x - 160) // seg_w)
@@ -207,7 +207,7 @@ class FloatingPet:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 136 <= e.y <= 152:
+        if e.x >= 160 and 150 <= e.y <= 165:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
@@ -383,14 +383,17 @@ class FloatingPet:
             self._draw_horizon_bar(160, 160)
             return
 
-        # ---- 等宽容器区域 ----
+        # ---- 等宽容器区域（紧贴底部，不留空白）----
         box_w = 120   # 每个容器宽度
-        box_h = 28    # 每个容器高度
-        gap = 6        # 容器间距
+        box_h = 26    # 每个容器高度（稍压缩）
+        gap = 4        # 容器间距
         box_x = x0     # 左对齐
-        F = (RATE_FONT, 11, "bold")  # 统一字体：11号 bold
+        F = (RATE_FONT, 11, "bold")  # 统一字体
 
-        # 容器1: 涨跌 + 概率（一行）
+        # 日期块按钮栏（紧贴底部边界，y=150~165）
+        self._draw_horizon_bar(160, 150)
+
+        # 容器1: 涨跌 + 概率
         box1_y = 40
         self._round_rect(c, box_x, box1_y, box_x + box_w, box1_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
         txt1 = f"{word}  {pct}"
@@ -405,10 +408,6 @@ class FloatingPet:
         box3_y = box2_y + box_h + gap
         self._round_rect(c, box_x, box3_y, box_x + box_w, box3_y + box_h, 8, fill="#1A1D24", outline=DIVIDER)
         c.create_text(box_x + box_w // 2, box3_y + box_h // 2, text=as_of, fill="#6B7380", font=F, anchor="center")
-
-        # 日期块按钮栏（容器4区域）
-        box4_y = box3_y + box_h + gap + 4
-        self._draw_horizon_bar(160, box4_y)
 
         # 置信度条（日期块下方留足间距，放到 y=165 下方）
         # 卡片底部预留：日期块下移，置信度条放到日期块下方
