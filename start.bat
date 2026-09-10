@@ -27,8 +27,5 @@ start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 REM Launch desktop pet (hidden console via vbs)
 start "" wscript.exe launch_widget.vbs
 
-REM Open browser (once, on startup only)
-start "" "http://127.0.0.1:8000"
-
 REM Exit this cmd window
 exit /b 0
