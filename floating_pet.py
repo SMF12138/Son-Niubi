@@ -72,6 +72,7 @@ class FloatingPet:
         # 绘制 + 定时刷新
         self._draw()
         self._refresh_data()
+        self._start_voice_player()
 
     def _load_images(self):
         """加载两张图，各自缩放到 IMG_TARGET_H 高。"""
@@ -119,20 +120,28 @@ class FloatingPet:
         webbrowser.open("http://127.0.0.1:8000")
 
     # ---- 语音 ----
-    def _play_voice(self):
-        """切形态一播放语音，不阻塞 UI。"""
+    def _start_voice_player(self):
+        """启动常驻语音播放器(预加载音频后台完成), 播放只需创建信号文件(瞬发)。"""
         if not VOICE_FILE.exists() or not VOICE_SCRIPT.exists():
             return
+        try:
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", str(VOICE_SCRIPT), str(VOICE_FILE)],
+                cwd=str(ROOT), creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
-        def _play():
-            try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                     "-File", str(VOICE_SCRIPT), str(VOICE_FILE)],
-                    timeout=15, capture_output=True)
-            except Exception:
-                pass
-        threading.Thread(target=_play, daemon=True).start()
+    def _play_voice(self):
+        """切形态一播放语音: 创建信号文件, 常驻播放器检测到立即播放。"""
+        if not VOICE_FILE.exists() or not VOICE_SCRIPT.exists():
+            return
+        signal = ROOT / "data" / "pet" / "_play_signal.dat"
+        try:
+            signal.touch()  # 创建+写时间戳 = 触发常驻播放器
+        except Exception:
+            pass
 
     # ---- 数据 ----
     def _refresh_data(self):
