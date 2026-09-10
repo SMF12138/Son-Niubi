@@ -390,8 +390,8 @@ class FloatingPet:
         box_x = x0     # 左对齐
         F = (RATE_FONT, 11, "bold")  # 统一字体
 
-        # 日期块按钮栏（紧贴底部边界，y=150~165）
-        self._draw_horizon_bar(160, 150)
+        # 日期块按钮栏（紧贴容器3下方）
+        self._draw_horizon_bar(160, box3_y + box_h + gap)
 
         # 容器1: 涨跌 + 概率
         box1_y = 40
