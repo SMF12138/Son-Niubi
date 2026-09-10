@@ -52,9 +52,7 @@ class FloatingPet:
 
         self.show_form1 = False
         self.mute = False
-        # 服务刚启动时(3s内)允许弹浏览器，之后不再弹
-        self._can_open_browser = True
-        self.root.after(3000, self._disable_browser_open)
+        self._last_browser_time = 0  # 上次打开浏览器的时间戳
         self.data = {}
         self.last_mtime = 0
         self._drag_data = {"x": 0, "y": 0}
@@ -143,14 +141,13 @@ class FloatingPet:
         dy = e.y - self._drag_data["y"]
         self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
 
-    def _disable_browser_open(self):
-        """3 秒后关闭浏览器自动弹出（服务已预热完毕）。"""
-        self._can_open_browser = False
-
     def _open_browser(self):
-        """仅在服务刚启动时(3s内)打开浏览器，之后不再弹出。"""
-        if not self._can_open_browser:
+        """打开预测页面：10 秒内不重复弹出。"""
+        import time as _time
+        now = _time.time()
+        if now - self._last_browser_time < 10:
             return
+        self._last_browser_time = now
         import ctypes
         try:
             ctypes.windll.shell32.ShellExecuteW(
