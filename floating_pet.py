@@ -340,23 +340,20 @@ class FloatingPet:
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
 
         c.create_text(x, 52, anchor="w", text=arrow, fill=color,
-                      font=(NUM_FONT, 16, "bold"))
-        c.create_text(x + 30, 58, anchor="w", text=word, fill=color,
-                      font=(CN_FONT, 12, "bold"))
-        c.create_text(x, 78, anchor="w", text=pct, fill=TEXT_HI,
-                      font=(NUM_FONT, 15, "bold"))
-        # 把握独立块: 与数字同字号 15、同行、字重一致, 右对齐固定在 x+118 列的右侧
-        c.create_text(x + 118, 78, anchor="e", text="把握", fill=TEXT_HI,
                       font=(CN_FONT, 15, "bold"))
+        c.create_text(x + 26, 52, anchor="w", text=word, fill=color,
+                      font=(CN_FONT, 15, "bold"))
+        c.create_text(x + 60, 52, anchor="w", text=pct, fill=TEXT_HI,
+                      font=(NUM_FONT, 15, "bold"))
         if rate_text:
-            c.create_text(x, 98, anchor="w", text=rate_text, fill=TEXT_MD,
+            c.create_text(x, 76, anchor="w", text=rate_text, fill=TEXT_MD,
                           font=(RATE_FONT, 12, "bold"))
         if as_of:
-            c.create_text(x, 114, anchor="w", text=as_of, fill=TEXT_DIM,
+            c.create_text(x, 94, anchor="w", text=as_of, fill=TEXT_DIM,
                           font=(NUM_FONT, 8))
 
         # 置信度条
-        bx1, bx2, by = x, x + 118, 130
+        bx1, bx2, by = x, x + 118, 108
         self._round_rect(c, bx1, by, bx2, by + 4, 2, fill=DIVIDER, outline="")
         ratio = max(0.0, min(1.0, conf))
         fillw = bx1 + max(4, int((bx2 - bx1) * ratio))
