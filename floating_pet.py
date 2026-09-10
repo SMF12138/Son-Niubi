@@ -48,7 +48,7 @@ DOWN_COLOR = "#35D0A0"   # 跌（绿）
 IMG_TARGET_H = 120       # 竖图按高度适配
 IMG_TARGET_W = 118       # 方图按宽度适配
 
-W_FULL, H_FULL = 300, 170
+W_FULL, H_FULL = 300, 165
 W_MIN, H_MIN = 48, 48
 
 BTN_R = 7
@@ -189,7 +189,7 @@ class FloatingPet:
 
     def _hit_horizon(self, x, y):
         """日期块区: 数据区右半(>=160), y∈[146,164] 为 4 段按钮. 返回段对应的 horizon 或 None."""
-        if x < 160 or not (146 <= y <= 164):
+        if x < 160 or not (116 <= y <= 132):
             return None
         seg_w = 30
         idx = int((x - 160) // seg_w)
@@ -208,7 +208,7 @@ class FloatingPet:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 146 <= e.y <= 164:
+        if e.x >= 160 and 116 <= e.y <= 132:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
@@ -367,14 +367,14 @@ class FloatingPet:
         rate = self.data.get("base_rate", 0)
         as_of = self.data.get("as_of", "")[:10]
 
-        # 标题区（与右上按钮同行 y=20）
+        # 标题区（与右上按钮同行 y=20，字体统一）
         c.create_oval(x, 20, x + 6, 26, fill=ACCENT, outline="")
         c.create_text(x + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
-                      font=(NUM_FONT, 9))
+                      font=(RATE_FONT, 10))
 
         if not self.data:
             c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=(CN_FONT, 13))
+                          fill=TEXT_DIM, font=(RATE_FONT, 13))
             self._draw_horizon_bar(160, 146)
             return
 
@@ -385,27 +385,24 @@ class FloatingPet:
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
         N = self.horizon
 
-        # 第1行: 68.00% 涨（概率 + 涨跌字换位，同字号同行）
-        c.create_text(x, 52, anchor="w", text=pct, fill=TEXT_HI,
-                      font=(NUM_FONT, 15, "bold"))
-        c.create_text(x + 70, 52, anchor="w", text=word, fill=color,
-                      font=(CN_FONT, 15, "bold"))
+        # 第1行: 68.00% 涨
+        c.create_text(x, 48, anchor="w", text=pct, fill=TEXT_HI,
+                      font=(RATE_FONT, 12, "bold"))
+        c.create_text(x + 70, 48, anchor="w", text=word, fill=color,
+                      font=(RATE_FONT, 12, "bold"))
 
-        # 第2行: 汇率（放大 14 号独立一行）
+        # 第2行: 汇率
         if rate_text:
-            c.create_text(x, 74, anchor="w", text=rate_text, fill=TEXT_MD,
-                          font=(RATE_FONT, 14, "bold"))
+            c.create_text(x, 68, anchor="w", text=rate_text, fill=TEXT_MD,
+                          font=(RATE_FONT, 12, "bold"))
 
-        # 第3行: 日期 + horizon 标签
-        horizon_label = f"{N}日"
+        # 第3行: 日期（独立一整行，放大）
         if as_of:
-            c.create_text(x, 96, anchor="w", text=as_of, fill=TEXT_DIM,
-                          font=(NUM_FONT, 8))
-        c.create_text(x + 80, 96, anchor="w", text=horizon_label,
-                      fill=ACCENT, font=(NUM_FONT, 8))
+            c.create_text(x, 88, anchor="w", text=as_of, fill=TEXT_DIM,
+                          font=(RATE_FONT, 12))
 
-        # 第4行: 日期块（4 段，每段 30px 宽，160~280）
-        self._draw_horizon_bar(160, 146)
+        # 日期块（4 段切换）
+        self._draw_horizon_bar(160, 116)
 
         # 置信度条（日期块下方留足间距，放到 y=165 下方）
         # 卡片底部预留：日期块下移，置信度条放到日期块下方
