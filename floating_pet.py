@@ -52,7 +52,7 @@ IMG_TARGET_H = 120
 IMG_TARGET_W = 118
 
 W_FULL, H_FULL = 300, 165
-W_MIN, H_MIN = 48, 48
+W_MIN, H_MIN = 84, 84
 
 BTN_R = 7
 BTN_Y = 20
@@ -291,62 +291,62 @@ class FloatingPet:
             self.root.after(200, self._draw)  # 200ms 更新一次
 
     def _draw_ball(self):
-        """悬浮球：第一版角色（黄色圆+绿眼睛+呼吸动画），缩放到48x48"""
+        """悬浮球：第一版角色（原封不动）"""
         c = self.canvas
         cx, cy = W_MIN // 2, W_MIN // 2
         breath = math.sin(self.frame * math.pi / 2) * 2
-        # 身体（黄色圆，半径20）
-        body_r = 20
+        # 身体（黄色圆，半径42）
+        body_r = 42
         c.create_oval(cx - body_r, cy - body_r + breath,
                        cx + body_r, cy + body_r + breath,
                        fill=BODY_YELLOW, outline=BODY_DARK, width=2)
         # 白肚皮（下方椭圆）
-        belly_w, belly_h = 13, 10
-        c.create_oval(cx - belly_w, cy + 2 + breath,
-                       cx + belly_w, cy + 2 + belly_h + breath,
+        belly_w, belly_h = 28, 22
+        c.create_oval(cx - belly_w, cy + 5 + breath,
+                       cx + belly_w, cy + 5 + belly_h + breath,
                        fill=BELLY_WHITE, outline="")
         # 手臂（右侧小圆）
-        arm_x = cx + body_r - 4
-        arm_y = cy + 2 + breath
-        arm_r = 6
+        arm_x = cx + body_r - 8
+        arm_y = cy + 5 + breath
+        arm_r = 12
         c.create_oval(arm_x - arm_r, arm_y - arm_r,
                        arm_x + arm_r, arm_y + arm_r,
                        fill=ARM_YELLOW, outline=BODY_DARK, width=1)
         # 眼睛
-        eye_x, eye_y = cx - 3, cy - 5 + breath
-        eye_r = 7
+        eye_x, eye_y = cx - 6, cy - 10 + breath
+        eye_r = 14
         # 白底
         c.create_oval(eye_x - eye_r, eye_y - eye_r,
                        eye_x + eye_r, eye_y + eye_r,
                        fill="white", outline=BODY_DARK, width=1)
         # 绿虹膜
-        iris_r = 5
+        iris_r = 10
         c.create_oval(eye_x - iris_r, eye_y - iris_r,
                        eye_x + iris_r, eye_y + iris_r,
                        fill=EYE_GREEN, outline="")
         # 黑瞳孔
-        pupil_r = 2
+        pupil_r = 5
         c.create_oval(eye_x - pupil_r, eye_y - pupil_r,
                        eye_x + pupil_r, eye_y + pupil_r,
                        fill=EYE_BLACK, outline="")
         # 高光
-        hl_x, hl_y = eye_x - 2, eye_y - 2
-        c.create_oval(hl_x - 1, hl_y - 1, hl_x + 1, hl_y + 1,
+        hl_x, hl_y = eye_x - 3, eye_y - 4
+        c.create_oval(hl_x - 2, hl_y - 2, hl_x + 2, hl_y + 2,
                        fill="white", outline="")
         # 嘴巴
-        mouth_y = cy + 9 + breath
+        mouth_y = cy + 18 + breath
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
         if pred == 1:
             # 看涨：开心嘴巴
-            c.create_arc(cx - 5, mouth_y - 3, cx + 5, mouth_y + 4,
+            c.create_arc(cx - 10, mouth_y - 6, cx + 10, mouth_y + 8,
                          start=200, extent=140, style="arc",
                          outline=MOUTH_PINK, width=2)
-            c.create_oval(cx - 3, mouth_y, cx + 3, mouth_y + 3,
+            c.create_oval(cx - 5, mouth_y, cx + 5, mouth_y + 6,
                           fill=MOUTH_PINK, outline="")
         else:
             # 看跌：担心小嘴
-            c.create_arc(cx - 4, mouth_y + 2, cx + 4, mouth_y - 1,
+            c.create_arc(cx - 8, mouth_y + 4, cx + 8, mouth_y - 2,
                          start=20, extent=140, style="arc",
                          outline=MOUTH_PINK, width=2)
 
