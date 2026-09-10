@@ -56,8 +56,7 @@ BTN_Y = 20
 BTN_XS = {"mute": 248, "min": 267, "close": 286}
 
 CN_FONT = "Microsoft YaHei"   # 中文
-NUM_FONT = "Bahnschrift"      # 数字/英文(高级 DIN 风, Win10+ 自带)
-RATE_FONT = "Segoe UI"        # 汇率(含 ₽ 符号)
+RATE_FONT = "Microsoft YaHei"   # 统一字体
 TITLE_FONT = CN_FONT           # 兼容别名
 
 
