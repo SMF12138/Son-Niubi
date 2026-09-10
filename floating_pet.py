@@ -13,6 +13,7 @@
 - 日期块切换 7/30/60/90 日 horizon，数据联动
 """
 import json
+import math
 import tkinter as tk
 from pathlib import Path
 
@@ -91,6 +92,7 @@ class FloatingPet:
         self._drag_data = {"x": 0, "y": 0}
         self._img_refs = []
         self._hover = None
+        self.frame = 0  # 动画帧计数器
 
         self.img_form1 = None
         self.img_form2 = None
@@ -274,33 +276,56 @@ class FloatingPet:
             self._draw_ball()
         else:
             self._draw_full()
+        # 悬浮球动画帧递增
+        if self.minimized:
+            self.frame += 1
+            self.root.after(200, self._draw)  # 200ms 更新一次
 
     def _draw_ball(self):
-        """悬浮球：渐变光泽 + 高光 + 阴影（f489a21 原版）"""
+        """悬浮球：第一版风格（黄色圆+绿眼睛+呼吸动画）"""
         c = self.canvas
         cx, cy = W_MIN // 2, H_MIN // 2
-        # 底部阴影
-        c.create_oval(cx - 16, cy - 8, cx + 16, cy + 20,
-                      fill="#12161D", outline="")
-        # 外光环
-        c.create_oval(cx - 21, cy - 21, cx + 21, cy + 21,
-                      fill="#2A333C", outline="")
-        # 同心椭圆叠出渐变光泽
-        for r, col in [(19, "#26303E"), (16, "#2C3948"), (13, "#35455A"),
-                       (10, "#3F536B"), (7, "#4A617C")]:
-            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="")
-        # 左上高光
-        c.create_oval(cx - 12, cy - 14, cx - 3, cy - 5,
-                      fill="#6E8BAE", outline="")
-        c.create_oval(cx - 10, cy - 12, cx - 5, cy - 7,
-                      fill="#A6BEDA", outline="")
-        # 状态点 + 圆环
+        
+        # 呼吸动画（上下浮动）
+        breath = math.sin(self.frame * math.pi / 2) * 2
+        cy += breath
+        
+        # 身体（黄色圆）
+        body_r = 20
+        c.create_oval(cx - body_r, cy - body_r, cx + body_r, cy + body_r,
+                      fill="#FFD93D", outline="#D4A843", width=2)
+        
+        # 眼睛（绿色虹膜）
+        eye_x, eye_y = cx - 3, cy - 2
+        eye_r = 7
+        # 白底
+        c.create_oval(eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r,
+                      fill="white", outline="#D4A843", width=1)
+        # 绿虹膜
+        iris_r = 5
+        c.create_oval(eye_x - iris_r, eye_y - iris_r, eye_x + iris_r, eye_y + iris_r,
+                      fill="#4FD1C5", outline="")
+        # 黑瞳孔
+        pupil_r = 2
+        c.create_oval(eye_x - pupil_r, eye_y - pupil_r, eye_x + pupil_r, eye_y + pupil_r,
+                      fill="#1A1D24", outline="")
+        # 高光
+        hl_x, hl_y = eye_x - 2, eye_y - 2
+        c.create_oval(hl_x - 1, hl_y - 1, hl_x + 1, hl_y + 1,
+                      fill="white", outline="")
+        
+        # 嘴巴（根据情绪）
+        mouth_y = cy + 10
         d = self.data.get("direction", {})
-        color = UP_COLOR if d.get("prediction", 0) == 1 else DOWN_COLOR
-        dx, dy = cx + 11, cy - 11
-        c.create_oval(dx - 7, dy - 7, dx + 7, dy + 7,
-                      fill="#1E222A", outline=color)
-        c.create_oval(dx - 4, dy - 4, dx + 4, dy + 4, fill=color, outline="")
+        pred = d.get("prediction", 0)
+        if pred == 1:
+            # 看涨：开心弧线
+            c.create_arc(cx - 6, mouth_y - 4, cx + 6, mouth_y + 4,
+                         start=200, extent=140, style="arc", outline="#D4A843", width=2)
+        else:
+            # 看跌：担心弧线
+            c.create_arc(cx - 6, mouth_y - 2, cx + 6, mouth_y + 6,
+                         start=20, extent=140, style="arc", outline="#D4A843", width=2)
 
     def _draw_full(self):
         c = self.canvas
