@@ -205,11 +205,11 @@ class FloatingPet:
         # 按钮栏
         bx = self.W - 14
         c.create_text(bx, 12, text="✕", fill="#555",
-                       font=("Microsoft YaHei", 12, "bold"))
+                       font=("Microsoft YaHei", 13))
         c.create_text(bx - 22, 12, text="—", fill="#555",
-                       font=("Microsoft YaHei", 12, "bold"))
+                       font=("Microsoft YaHei", 13))
         c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
-                       fill="#777", font=("Microsoft YaHei", 12))
+                       fill="#777", font=("Microsoft YaHei", 13))
 
     def _draw_data(self, x):
         c = self.canvas
@@ -221,7 +221,7 @@ class FloatingPet:
 
         if not self.data:
             c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=("Microsoft YaHei", 10))
+                          fill=TEXT_DIM, font=("Microsoft YaHei", 13))
             return
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
@@ -229,35 +229,22 @@ class FloatingPet:
         pct = f"{conf * 100:.0f}%"
         rate_text = f"1元 = {rate:.2f} 卢布" if rate else ""
 
-        # 4 行内容，均匀分布在可用高度内
-        # 可用区域：从 y_start 到 self.H - 8
         top_pad = 8
         bot_pad = 8
         area_h = self.H - top_pad - bot_pad
-        n_lines = 4
-        line_gap = area_h // (n_lines + 1)  # 每行间距
+        line_gap = area_h // 5
 
-        y = top_pad + line_gap  # 第1行中心
+        y = top_pad + line_gap
+        F = ("Microsoft YaHei", 13)
 
-        # 1) 方向
-        c.create_text(x, y, anchor="w", text=arrow, fill=color,
-                       font=("Microsoft YaHei", 22, "bold"))
+        c.create_text(x, y, anchor="w", text=arrow, fill=color, font=F)
         y += line_gap
-
-        # 2) 把握度
-        c.create_text(x, y, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
-                       font=("Microsoft YaHei", 14))
+        c.create_text(x, y, anchor="w", text=f"{pct} 把握", fill=TEXT_HI, font=F)
         y += line_gap
-
-        # 3) 汇率
         if rate_text:
-            c.create_text(x, y, anchor="w", text=rate_text, fill=TEXT_MD,
-                           font=("Microsoft YaHei", 12))
+            c.create_text(x, y, anchor="w", text=rate_text, fill=TEXT_MD, font=F)
         y += line_gap
-
-        # 4) 日期
-        c.create_text(x, y, anchor="w", text=as_of,
-                       fill=TEXT_DIM, font=("Microsoft YaHei", 10))
+        c.create_text(x, y, anchor="w", text=as_of, fill=TEXT_DIM, font=F)
 
     def run(self):
         self.root.mainloop()
