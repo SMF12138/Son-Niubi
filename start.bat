@@ -17,15 +17,15 @@ if not exist ".venv\Scripts\pythonw.exe" (
 REM If service already running, just start pet
 powershell -NoProfile -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %errorlevel%==0 (
-  start /b "" ".venv\Scripts\python.exe" floating_pet.py
+  start "" wscript.exe launch_widget.vbs
   exit /b 0
 )
 
 REM Launch Flask (background, no window, no browser)
 start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 
-REM Launch desktop pet (background, no console window)
-start /b "" ".venv\Scripts\python.exe" floating_pet.py
+REM Launch desktop pet (hidden console via vbs)
+start "" wscript.exe launch_widget.vbs
 
 REM Open browser (once, on startup only)
 start "" "http://127.0.0.1:8000"
