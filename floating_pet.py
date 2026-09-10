@@ -48,7 +48,10 @@ BTN_R = 7
 BTN_Y = 20
 BTN_XS = {"mute": 248, "min": 267, "close": 286}
 
-TITLE_FONT = "Microsoft YaHei"
+CN_FONT = "Microsoft YaHei"   # 中文
+NUM_FONT = "Bahnschrift"      # 数字/英文(高级 DIN 风, Win10+ 自带)
+RATE_FONT = "Segoe UI"        # 汇率(含 ₽ 符号)
+TITLE_FONT = CN_FONT           # 兼容别名
 
 
 class FloatingPet:
@@ -274,10 +277,10 @@ class FloatingPet:
             c.create_image(78, 70, image=img)
 
         # 当前形态小标签
-        label = "形态 1" if self.show_form1 else "形态 2"
+        label = "儿子" if self.show_form1 else "奶龙"
         self._round_rect(c, 55, 138, 101, 154, 8, fill=BTN_BG, outline="")
         c.create_text(78, 146, text=label, fill=ACCENT,
-                      font=(TITLE_FONT, 8))
+                      font=(CN_FONT, 10))
 
         # 竖向分隔线
         c.create_line(150, 16, 150, 148, fill=DIVIDER, width=1)
@@ -306,7 +309,7 @@ class FloatingPet:
             else:
                 txt = "🔇" if self.mute else "🔊"
             c.create_text(cx, BTN_Y, text=txt, fill=fg,
-                          font=(TITLE_FONT, 8), tags="btn")
+                          font=(CN_FONT, 8), tags="btn")
 
     def _redraw_buttons(self):
         self.canvas.delete("btn")
@@ -323,28 +326,33 @@ class FloatingPet:
         # 标题区
         c.create_oval(x, 22, x + 6, 28, fill=ACCENT, outline="")
         c.create_text(x + 12, 25, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
-                      font=(TITLE_FONT, 9))
+                      font=(NUM_FONT, 9))
 
         if not self.data:
             c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=(TITLE_FONT, 13))
+                          fill=TEXT_DIM, font=(CN_FONT, 13))
             return
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
-        arrow = "▲ 涨" if pred == 1 else "▼ 跌"
+        arrow = "▲" if pred == 1 else "▼"
+        word = "涨" if pred == 1 else "跌"
         pct = f"{conf * 100:.0f}%"
-        rate_text = f"1元 = {rate:.2f} 卢布" if rate else ""
+        rate_text = f"{rate:.2f} ₽/¥" if rate else ""
 
         c.create_text(x, 52, anchor="w", text=arrow, fill=color,
-                      font=(TITLE_FONT, 15, "bold"))
-        c.create_text(x, 74, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
-                      font=(TITLE_FONT, 13, "bold"))
+                      font=(NUM_FONT, 16, "bold"))
+        c.create_text(x + 30, 58, anchor="w", text=word, fill=color,
+                      font=(CN_FONT, 12, "bold"))
+        c.create_text(x, 78, anchor="w", text=pct, fill=TEXT_HI,
+                      font=(NUM_FONT, 15, "bold"))
+        c.create_text(x + 42, 84, anchor="w", text="把握", fill=TEXT_HI,
+                      font=(CN_FONT, 10))
         if rate_text:
-            c.create_text(x, 94, anchor="w", text=rate_text, fill=TEXT_MD,
-                          font=(TITLE_FONT, 11))
+            c.create_text(x, 98, anchor="w", text=rate_text, fill=TEXT_MD,
+                          font=(RATE_FONT, 12, "bold"))
         if as_of:
-            c.create_text(x, 112, anchor="w", text=as_of, fill=TEXT_DIM,
-                          font=(TITLE_FONT, 9))
+            c.create_text(x, 114, anchor="w", text=as_of, fill=TEXT_DIM,
+                          font=(NUM_FONT, 8))
 
         # 置信度条
         bx1, bx2, by = x, x + 118, 130
