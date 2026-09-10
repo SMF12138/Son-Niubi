@@ -198,7 +198,7 @@ class FloatingPet:
         c.create_line(150, 6, 150, self.H - 6, fill="#2A2A2A", width=1)
 
         # 数据（从 y=16 开始，每行留足间距）
-        self._draw_data(162, 16)
+        self._draw_data(162)
 
         # 按钮栏
         bx = self.W - 14
@@ -209,7 +209,7 @@ class FloatingPet:
         c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
                        fill="#777", font=("Arial", 11))
 
-    def _draw_data(self, x, y):
+    def _draw_data(self, x, y_start):
         c = self.canvas
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
@@ -218,28 +218,44 @@ class FloatingPet:
         as_of = self.data.get("as_of", "")[:10]
 
         if not self.data:
-            c.create_text(x, y + 30, anchor="w", text="等待数据…",
+            c.create_text(x, y_start + 35, anchor="w", text="等待数据…",
                           fill=TEXT_DIM, font=("Microsoft YaHei", 10))
             return
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         arrow = "▲ 涨" if pred == 1 else "▼ 跌"
         pct = f"{conf * 100:.0f}%"
+        rate_text = f"1元 = {rate:.2f} 卢布" if rate else ""
 
-        # 第1行：方向箭头（大）
+        # 4 行内容，均匀分布在可用高度内
+        # 可用区域：从 y_start 到 self.H - 8
+        top_pad = 8
+        bot_pad = 8
+        area_h = self.H - top_pad - bot_pad
+        n_lines = 4
+        line_gap = area_h // (n_lines + 1)  # 每行间距
+
+        y = top_pad + line_gap  # 第1行中心
+
+        # 1) 方向
         c.create_text(x, y, anchor="w", text=arrow, fill=color,
-                       font=("Microsoft YaHei", 26, "bold"))
-        # 第2行：把握度（下移32px，和方向不重叠）
-        c.create_text(x, y + 34, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
+                       font=("Microsoft YaHei", 22, "bold"))
+        y += line_gap
+
+        # 2) 把握度
+        c.create_text(x, y, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
                        font=("Microsoft YaHei", 14))
-        # 第3行：汇率
-        if rate:
-            c.create_text(x, y + 64, anchor="w",
-                           text=f"1元 = {rate:.2f} 卢布", fill=TEXT_MD,
-                           font=("Microsoft YaHei", 11))
-        # 第4行：日期
-        c.create_text(x, y + 90, anchor="w", text=as_of,
-                       fill=TEXT_DIM, font=("Arial", 9))
+        y += line_gap
+
+        # 3) 汇率
+        if rate_text:
+            c.create_text(x, y, anchor="w", text=rate_text, fill=TEXT_MD,
+                           font=("Microsoft YaHei", 12))
+        y += line_gap
+
+        # 4) 日期
+        c.create_text(x, y, anchor="w", text=as_of,
+                       fill=TEXT_DIM, font=("Microsoft YaHei", 10))
 
     def run(self):
         self.root.mainloop()
