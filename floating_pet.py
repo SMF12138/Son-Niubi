@@ -7,7 +7,6 @@
 - 每 5s 读 forecast_7.json 刷新数据
 """
 import json
-import subprocess
 import tkinter as tk
 from pathlib import Path
 
@@ -15,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 FORECAST_FILE = ROOT / "data" / "forecast_7.json"
 FORM1 = ROOT / "data" / "pet" / "form1.png"  # 侧面穿T恤
 FORM2 = ROOT / "data" / "pet" / "form2.png"  # 正面无衣
-VOICE_FILE = Path(r"C:\Users\86177\Desktop\语音.m4a")
+VOICE_FILE = Path(r"C:\Users\86177\Desktop\语音.wav")
 
 BG = "#000000"
 TEXT_HI = "#FFFFFF"
@@ -99,25 +98,12 @@ class FloatingPet:
         self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
 
     def _play_voice(self):
-        """播放语音：用系统默认播放器打开 m4a，1.5s 后关闭播放器窗口。"""
+        """播放语音：winsound 直接播 wav（零窗口、毫秒级）。"""
         if not VOICE_FILE.exists():
             return
-        import os
+        import winsound
         try:
-            os.startfile(str(VOICE_FILE))
-            # 延迟后关闭默认播放器（避免残留窗口）
-            def _close():
-                import time
-                time.sleep(1.5)
-                # 杀掉常见播放器进程（媒体播放器/ Groove/ etc）
-                for name in ["MediaPlayer.exe", "Music.UI.exe", "Microsoft.Photos.exe"]:
-                    try:
-                        subprocess.run(["taskkill", "/f", "/im", name],
-                                       timeout=3, capture_output=True)
-                    except Exception:
-                        pass
-            import threading
-            threading.Thread(target=_close, daemon=True).start()
+            winsound.PlaySound(str(VOICE_FILE), winsound.SND_FILENAME | winsound.SND_ASYNC)
         except Exception:
             pass
 
