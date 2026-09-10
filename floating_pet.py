@@ -17,6 +17,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FORECAST_FILE = ROOT / "data" / "forecast_7.json"
+FORECAST_FILES = {
+    7: ROOT / "data" / "forecast_7.json",
+    30: ROOT / "data" / "forecast_30.json",
+    60: ROOT / "data" / "forecast_60.json",
+    90: ROOT / "data" / "forecast_90.json",
+}
+HORIZONS = [7, 30, 60, 90]
 FORM1 = ROOT / "data" / "pet" / "form1.png"
 FORM2 = ROOT / "data" / "pet" / "form2.png"
 VOICE1 = ROOT / "data" / "pet" / "voice1.wav"
@@ -41,7 +48,7 @@ DOWN_COLOR = "#35D0A0"   # 跌（绿）
 IMG_TARGET_H = 120       # 竖图按高度适配
 IMG_TARGET_W = 118       # 方图按宽度适配
 
-W_FULL, H_FULL = 300, 165
+W_FULL, H_FULL = 300, 170
 W_MIN, H_MIN = 48, 48
 
 BTN_R = 7
@@ -80,6 +87,8 @@ class FloatingPet:
         self.mute = False
         self.data = {}
         self.last_mtime = 0
+        self.horizon = 7          # 当前展示的预测周期(交易日), 日期块可切换
+        self._hovers = set()      # 日期块 hover 集合
         self._drag_data = {"x": 0, "y": 0}
         self._img_refs = []
         self._hover = None
@@ -170,8 +179,23 @@ class FloatingPet:
             import webbrowser
             webbrowser.open("http://127.0.0.1:8000")
             return
+        # 日期块: 右侧底部 4 段可点击切换 horizon
+        h = self._hit_horizon(e.x, e.y)
+        if h is not None:
+            self._set_horizon(h)
+            return
         # 右侧数据区 → 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
+
+    def _hit_horizon(self, x, y):
+        """日期块区: 数据区右半(>=160), y∈[146,164] 为 4 段按钮. 返回段对应的 horizon 或 None."""
+        if x < 160 or not (146 <= y <= 164):
+            return None
+        seg_w = 30
+        idx = int((x - 160) // seg_w)
+        if 0 <= idx < len(HORIZONS):
+            return HORIZONS[idx]
+        return None
 
     def _do_drag(self, e):
         dx = e.x - self._drag_data["x"]
@@ -183,14 +207,21 @@ class FloatingPet:
         if self.minimized:
             return
         bid = self._hit_button(e.x, e.y)
-        if bid != self._hover:
+        hov_now = set()
+        if e.x >= 160 and 146 <= e.y <= 164:
+            h = self._hit_horizon(e.x, e.y)
+            if h is not None:
+                hov_now.add(h)
+        if bid != self._hover or hov_now != self._hovers:
             self._hover = bid
-            self._redraw_buttons()
+            self._hovers = hov_now
+            self._draw()
 
     def _on_leave(self, _e):
-        if self._hover is not None:
+        if self._hover is not None or self._hovers:
             self._hover = None
-            self._redraw_buttons()
+            self._hovers = set()
+            self._draw()
 
     def _play_voice(self):
         voice = VOICE1 if self.show_form1 else VOICE2
@@ -203,17 +234,30 @@ class FloatingPet:
         except Exception:
             pass
 
+    def _horizon_file(self):
+        return FORECAST_FILES.get(self.horizon, FORECAST_FILE)
+
     def _refresh_data(self):
         try:
-            if FORECAST_FILE.exists():
-                mtime = FORECAST_FILE.stat().st_mtime
+            f = self._horizon_file()
+            if f.exists():
+                mtime = f.stat().st_mtime
                 if mtime != self.last_mtime:
                     self.data = json.loads(
-                        FORECAST_FILE.read_text(encoding="utf-8"))
+                        f.read_text(encoding="utf-8"))
                     self.last_mtime = mtime
         except Exception:
             pass
         self.root.after(5000, self._refresh_data)
+        self._draw()
+
+    def _set_horizon(self, h):
+        if h == self.horizon:
+            return
+        self.horizon = h
+        self.last_mtime = -1   # 强制重新读取目标 horizon 文件
+        self.data = {}
+        self._refresh_data()
         self._draw()
 
     # ---------- 绘制 ----------
@@ -323,14 +367,15 @@ class FloatingPet:
         rate = self.data.get("base_rate", 0)
         as_of = self.data.get("as_of", "")[:10]
 
-        # 标题区
-        c.create_oval(x, 22, x + 6, 28, fill=ACCENT, outline="")
-        c.create_text(x + 12, 25, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
+        # 标题区（与右上按钮同行 y=20）
+        c.create_oval(x, 20, x + 6, 26, fill=ACCENT, outline="")
+        c.create_text(x + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
                       font=(NUM_FONT, 9))
 
         if not self.data:
             c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
                           fill=TEXT_DIM, font=(CN_FONT, 13))
+            self._draw_horizon_bar(160, 146)
             return
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
@@ -338,26 +383,55 @@ class FloatingPet:
         word = "涨" if pred == 1 else "跌"
         pct = f"{conf * 100:.2f}%"
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
+        N = self.horizon
 
-        c.create_text(x, 52, anchor="w", text=arrow, fill=color,
-                      font=(CN_FONT, 15, "bold"))
-        c.create_text(x + 26, 52, anchor="w", text=word, fill=color,
-                      font=(CN_FONT, 15, "bold"))
-        c.create_text(x + 60, 52, anchor="w", text=pct, fill=TEXT_HI,
+        # 第1行: 68.00% 涨（概率 + 涨跌字换位，同字号同行）
+        c.create_text(x, 52, anchor="w", text=pct, fill=TEXT_HI,
                       font=(NUM_FONT, 15, "bold"))
-        if rate_text:
-            c.create_text(x, 76, anchor="w", text=rate_text, fill=TEXT_MD,
-                          font=(RATE_FONT, 12, "bold"))
-        if as_of:
-            c.create_text(x, 94, anchor="w", text=as_of, fill=TEXT_DIM,
-                          font=(NUM_FONT, 8))
+        c.create_text(x + 70, 52, anchor="w", text=word, fill=color,
+                      font=(CN_FONT, 15, "bold"))
 
-        # 置信度条
-        bx1, bx2, by = x, x + 118, 108
-        self._round_rect(c, bx1, by, bx2, by + 4, 2, fill=DIVIDER, outline="")
-        ratio = max(0.0, min(1.0, conf))
-        fillw = bx1 + max(4, int((bx2 - bx1) * ratio))
-        self._round_rect(c, bx1, by, fillw, by + 4, 2, fill=color, outline="")
+        # 第2行: 汇率（放大 14 号独立一行）
+        if rate_text:
+            c.create_text(x, 74, anchor="w", text=rate_text, fill=TEXT_MD,
+                          font=(RATE_FONT, 14, "bold"))
+
+        # 第3行: 日期 + horizon 标签
+        horizon_label = f"{N}日"
+        if as_of:
+            c.create_text(x, 96, anchor="w", text=as_of, fill=TEXT_DIM,
+                          font=(NUM_FONT, 8))
+        c.create_text(x + 80, 96, anchor="w", text=horizon_label,
+                      fill=ACCENT, font=(NUM_FONT, 8))
+
+        # 第4行: 日期块（4 段，每段 30px 宽，160~280）
+        self._draw_horizon_bar(160, 146)
+
+        # 置信度条（日期块下方留足间距，放到 y=165 下方）
+        # 卡片底部预留：日期块下移，置信度条放到日期块下方
+        # 不再画置信度条（布局已满），改为在日期块里显示 N 值
+
+    def _draw_horizon_bar(self, x0, y):
+        """4 段 horizon 日期块按钮栏，当前选中高亮，hover 变色"""
+        c = self.canvas
+        seg_w = 30
+        for i, h in enumerate(HORIZONS):
+            x1 = x0 + i * seg_w
+            x2 = x1 + seg_w - 2
+            is_active = (h == self.horizon)
+            is_hov = (h in self._hovers)
+            if is_active:
+                bg = ACCENT
+                fg = BG
+            elif is_hov:
+                bg = BTN_HOVER
+                fg = TEXT_HI
+            else:
+                bg = BTN_BG
+                fg = TEXT_DIM
+            self._round_rect(c, x1, y, x2, y + 16, 6, fill=bg, outline="")
+            c.create_text((x1 + x2) // 2, y + 8, text=f"{h}日", fill=fg,
+                          font=(CN_FONT, 8, "bold"))
 
     def run(self):
         self.root.mainloop()
