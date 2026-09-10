@@ -130,8 +130,7 @@ class FloatingPet:
             self._draw()
             if not self.mute:
                 self._play_voice()
-            import webbrowser
-            webbrowser.open("http://127.0.0.1:8000")
+            self._open_browser()
             return
         # 右侧数据区 → 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
@@ -141,7 +140,17 @@ class FloatingPet:
         dy = e.y - self._drag_data["y"]
         self.root.geometry(f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
 
+    def _open_browser(self):
+        """打开预测页面：ShellExecuteW 会复用已有标签（不开新页）。"""
+        import ctypes
+        try:
+            ctypes.windll.shell32.ShellExecuteW(
+                None, "open", "http://127.0.0.1:8000", None, None, 1)
+        except Exception:
+            pass
+
     def _play_voice(self):
+        """播放语音：winsound 直接播 wav（零窗口、毫秒级）。"""
         voice = VOICE1 if self.show_form1 else VOICE2
         if not voice.exists():
             return
