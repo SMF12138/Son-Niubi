@@ -145,9 +145,9 @@ class FloatingPet:
 
     def _hit_horizon(self, x, y):
         """日期块区域: 右侧底部，返回 horizon 或 None"""
-        if x < 160 or not (148 <= y <= 164):
+        if x < 160 or not (128 <= y <= 154):
             return None
-        seg_w = 30
+        seg_w = 28  # 实际按钮宽度（draw_horizon_bar 里 x2 = x1 + seg_w - 2）
         idx = int((x - 160) // seg_w)
         if 0 <= idx < len(HORIZONS):
             return HORIZONS[idx]
@@ -204,7 +204,7 @@ class FloatingPet:
             return
         bid = self._hit_button(e.x, e.y)
         hov_now = set()
-        if e.x >= 160 and 148 <= e.y <= 164:
+        if e.x >= 160 and 128 <= e.y <= 154:
             h = self._hit_horizon(e.x, e.y)
             if h is not None:
                 hov_now.add(h)
