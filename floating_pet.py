@@ -207,9 +207,9 @@ class FloatingPet:
         c.create_text(bx, 12, text="✕", fill="#555",
                        font=("Microsoft YaHei", 12, "bold"))
         c.create_text(bx - 22, 12, text="—", fill="#555",
-                       font=("Microsoft YaHei", 13, "bold"))
+                       font=("Microsoft YaHei", 12, "bold"))
         c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
-                       fill="#777", font=("Microsoft YaHei", 11))
+                       fill="#777", font=("Microsoft YaHei", 12))
 
     def _draw_data(self, x):
         c = self.canvas
