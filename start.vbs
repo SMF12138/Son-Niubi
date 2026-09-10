@@ -1,4 +1,4 @@
-' start.vbs — 无窗口入口: 起 Flask + 桌宠 + 开浏览器
+' start.vbs - windowless entry: Flask + desktop pet + open browser
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
 pyw = base & "\.venv\Scripts\pythonw.exe"
@@ -8,13 +8,13 @@ url = "http://127.0.0.1:8000"
 Set shell = CreateObject("WScript.Shell")
 shell.CurrentDirectory = base
 
-' 起 Flask (无窗口)
+' start Flask (no window)
 shell.Run """" & pyw & """ -m app.cli serve --no-browser", 0, False
 
-' 开浏览器
+' open browser
 WScript.Sleep 1000
 shell.Run url, 1, False
 
-' 起桌宠
+' start desktop pet
 WScript.Sleep 500
 shell.Run """" & py & """ floating_pet.py", 0, False

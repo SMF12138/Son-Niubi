@@ -100,13 +100,17 @@ def cmd_serve(args):
     new_last = store.last_date()
     if (new_last != prev_last or not config.DIRECTION_JSON.exists()
             or not config.FORECAST_JSONS.get(7).exists()):
-        from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
-        df, oil_df, sent_df, rate_df = _load_all()
-        dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
-        store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
-        calibrate_moex_z(df, oil_df, sent_df, rate_df)
-        from app import forecast as fc
-        fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+        try:
+            from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
+            df, oil_df, sent_df, rate_df = _load_all()
+            dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+            store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
+            calibrate_moex_z(df, oil_df, sent_df, rate_df)
+            from app import forecast as fc
+            fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+        except SystemExit as e:
+            # 首次运行且数据源全部抓取失败: 不阻断看板启动, 页面自然显示空数据
+            log.warning("历史数据不足, 跳过回测/校准/预测(%s); 看板仍会启动", e)
     else:
         log.info("数据无更新, 跳过回测(产物已最新)")
     from app.web.server import create_app

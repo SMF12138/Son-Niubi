@@ -9,7 +9,11 @@ if not exist "%SHORTCUT%" (
 )
 
 if not exist ".venv\Scripts\pythonw.exe" (
-  echo .venv not found
+  echo.
+  echo ERROR: .venv not found.
+  echo Run scripts\setup.ps1 first to create it and install dependencies.
+  echo setup.ps1 requires Python 3.10+ from https://www.python.org/downloads/
+  echo.
   pause
   exit /b 1
 )

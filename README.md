@@ -4,8 +4,6 @@
 
 页面如实展示真实回测命中率，并与基线并列对照，不虚标。**本项目不构成投资建议。**
 
-> 仓库：https://github.com/SMF12138/Son-Niubi （private）
-
 ---
 
 ## 数据源（全部免密钥）
@@ -13,7 +11,7 @@
 | 源 | 用途 | 说明 |
 | --- | --- | --- |
 | **CBR** `XML_dynamic` | 官方日牌价（主） | 币种 CNY（`R01375`）、USD（`R01235`，衍生特征）。首抓自 2010-01-01，之后增量。 |
-| **CBR** `KeyRate` HTML | 关键利率 | 在线抓取 3255 行（2013-09→今），失败回退 38 行硬编码。 |
+| **CBR** `KeyRate` HTML | 关键利率 | 在线抓取 3255 行（2013-09→今），失败回退 38 行硬编码（只取 ≤ 今天的条目，避免未来数据）。 |
 | **MOEX ISS** | 在岸成交价（核心信号） | CNYRUB_TOM 日线，2022-06 起。**领先 CBR 次日牌价**，是方向预测的主信号。 |
 | **er-api** | 兜底 | CBR 不可用时补最新一日，标 `erapi` 来源。 |
 | Brent 油价 | 特征 | GitHub datasets/oil-prices（主）+ Yahoo Finance BZ=F（备用）。 |
@@ -59,6 +57,8 @@
 ---
 
 ## 快速开始
+
+> 环境要求：**Python 3.10+**（安装时务必勾选 `Add python.exe to PATH`）。首次启动需联网抓取历史数据（CBR 自 2010 年）并跑一遍回测；若网络不可用，看板仍会启动，只是暂时没有数据。
 
 ```powershell
 .\scripts\setup.ps1    # 建 .venv、装依赖、下载 ECharts（仅首次）
@@ -169,3 +169,7 @@ tests/                   单测
 - [DEVELOPMENT.md](DEVELOPMENT.md) — 开发路线图与待办优先级
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — 已知问题清单（系统审计，含修复状态）
 - [STRATEGY_FINDINGS.md](STRATEGY_FINDINGS.md) — 方向信号研发历程（历史记录）
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

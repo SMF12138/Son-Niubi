@@ -3,7 +3,8 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not (Test-Path '.venv\Scripts\python.exe')) {
-    Write-Host "未找到 .venv,请先运行 .\scripts\setup.ps1"
+    Write-Host "ERROR: .venv not found. Run .\scripts\setup.ps1 first."
+    Write-Host "setup.ps1 needs Python 3.10+ on your PATH: https://www.python.org/downloads/"
     exit 1
 }
 $py = '.venv\Scripts\python.exe'
