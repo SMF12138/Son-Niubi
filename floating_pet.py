@@ -1,10 +1,14 @@
-"""桌面宠物浮窗：真实图片 + 交互 + 语音 + 最小化悬浮球。
+"""桌面宠物浮窗：现代暗色圆角卡片 + 真实图片 + 交互 + 语音 + 最小化悬浮球。
 
-- 纯黑背景，原图黑底直接嵌入
-- 点击角色切换形态 + 播放语音
-- — 最小化为圆球悬浮球，点击恢复
-- ✕ 关闭桌宠 + 终止 Flask
-- 🔊/🔇 静音
+视觉：
+- 透明窗口 + Canvas 圆角卡片（#1E222A）
+- 文字层级：标题 #FFFFFF / 正文 #B8C0CC / 弱化 #6B7380，青色霓虹点缀
+- 右上角三个圆形 icon 按钮（✕ / — / 🔊），hover 变色
+
+交互（逻辑未改）：
+- 点击角色区切换形态 + 播放语音 + 打开网页
+- 右上按钮：关闭 / 最小化 / 静音
+- 右侧数据区拖拽移动；最小化后点击悬浮球恢复
 - 每 5s 读 forecast_7.json 刷新数据
 """
 import json
@@ -18,16 +22,33 @@ FORM2 = ROOT / "data" / "pet" / "form2.png"
 VOICE1 = ROOT / "data" / "pet" / "voice1.wav"
 VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
 
-BG = "#000000"
-TEXT_HI = "#FFFFFF"
-TEXT_MD = "#D0C8B8"
-TEXT_DIM = "#706858"
-UP_COLOR = "#FF6B5E"
-DOWN_COLOR = "#35D0A0"
-IMG_TARGET_H = 130
+# 透明键色：窗口里这个颜色会被挖成透明，露出桌面
+TRANSPARENT_KEY = "#FF00FE"
+
+BG = "#1E222A"           # 卡片底色
+PANEL = "#14171D"        # 角色图承接底板
+DIVIDER = "#2A303C"      # 分隔线
+TEXT_HI = "#FFFFFF"      # 标题 / 强调
+TEXT_MD = "#B8C0CC"      # 正文
+TEXT_DIM = "#6B7380"     # 弱化
+ACCENT = "#4FD1C5"       # 青色霓虹点缀
+BTN_BG = "#2A333C"       # 按钮底
+BTN_HOVER = "#3B4757"    # 次级按钮 hover
+BTN_CLOSE_HOVER = "#E5484D"
+UP_COLOR = "#FF6B5E"     # 涨（红）
+DOWN_COLOR = "#35D0A0"   # 跌（绿）
+
+IMG_TARGET_H = 120       # 竖图按高度适配
+IMG_TARGET_W = 118       # 方图按宽度适配
 
 W_FULL, H_FULL = 300, 165
-W_MIN, H_MIN = 44, 44
+W_MIN, H_MIN = 48, 48
+
+BTN_R = 7
+BTN_Y = 20
+BTN_XS = {"mute": 248, "min": 267, "close": 286}
+
+TITLE_FONT = "Microsoft YaHei"
 
 
 class FloatingPet:
@@ -36,7 +57,8 @@ class FloatingPet:
         self.root.title("CNY/RUB 桌宠")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.configure(bg=BG)
+        self.root.configure(bg=TRANSPARENT_KEY)
+        self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
 
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -48,7 +70,7 @@ class FloatingPet:
             f"{self.W}x{self.H}+{sw - self.W - 30}+{sh - self.H - 60}")
 
         self.canvas = tk.Canvas(self.root, width=self.W, height=self.H,
-                                bg=BG, highlightthickness=0)
+                                bg=TRANSPARENT_KEY, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
         self.show_form1 = False
@@ -57,6 +79,7 @@ class FloatingPet:
         self.last_mtime = 0
         self._drag_data = {"x": 0, "y": 0}
         self._img_refs = []
+        self._hover = None
 
         self.img_form1 = None
         self.img_form2 = None
@@ -64,6 +87,8 @@ class FloatingPet:
 
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<B1-Motion>", self._do_drag)
+        self.canvas.bind("<Motion>", self._on_motion)
+        self.canvas.bind("<Leave>", self._on_leave)
 
         self._draw()
         self._refresh_data()
@@ -72,7 +97,10 @@ class FloatingPet:
         for attr, path in [("img_form1", FORM1), ("img_form2", FORM2)]:
             if path.exists():
                 full = tk.PhotoImage(file=str(path))
-                scale = max(1, full.height() // IMG_TARGET_H)
+                if full.height() > full.width():
+                    scale = max(1, round(full.height() / IMG_TARGET_H))
+                else:
+                    scale = max(1, round(full.width() / IMG_TARGET_W))
                 img = full.subsample(scale)
                 setattr(self, attr, img)
                 self._img_refs.append(img)
@@ -98,13 +126,20 @@ class FloatingPet:
         self.canvas.config(width=W_FULL, height=H_FULL)
         self._draw()
 
+    def _hit_button(self, x, y):
+        for bid, cx in BTN_XS.items():
+            if (x - cx) ** 2 + (y - BTN_Y) ** 2 <= (BTN_R + 3) ** 2:
+                return bid
+        return None
+
     def _on_click(self, e):
         if self.minimized:
             self._restore()
             return
 
+        bid = self._hit_button(e.x, e.y)
         # ✕ 关闭
-        if self.W - 22 < e.x < self.W - 2 and 2 < e.y < 22:
+        if bid == "close":
             import subprocess
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command",
@@ -115,11 +150,11 @@ class FloatingPet:
             self.root.destroy()
             return
         # — 最小化
-        if self.W - 42 < e.x < self.W - 22 and 2 < e.y < 22:
+        if bid == "min":
             self._minimize()
             return
         # 🔊/🔇 静音
-        if self.W - 62 < e.x < self.W - 42 and 2 < e.y < 22:
+        if bid == "mute":
             self.mute = not self.mute
             self._draw()
             return
@@ -140,6 +175,19 @@ class FloatingPet:
         dy = e.y - self._drag_data["y"]
         self.root.geometry(
             f"+{self.root.winfo_x() + dx}+{self.root.winfo_y() + dy}")
+
+    def _on_motion(self, e):
+        if self.minimized:
+            return
+        bid = self._hit_button(e.x, e.y)
+        if bid != self._hover:
+            self._hover = bid
+            self._redraw_buttons()
+
+    def _on_leave(self, _e):
+        if self._hover is not None:
+            self._hover = None
+            self._redraw_buttons()
 
     def _play_voice(self):
         voice = VOICE1 if self.show_form1 else VOICE2
@@ -165,6 +213,17 @@ class FloatingPet:
         self.root.after(5000, self._refresh_data)
         self._draw()
 
+    # ---------- 绘制 ----------
+
+    @staticmethod
+    def _round_rect(c, x1, y1, x2, y2, r, **kw):
+        pts = [
+            x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+            x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+        ]
+        return c.create_polygon(pts, smooth=True, **kw)
+
     def _draw(self):
         c = self.canvas
         c.delete("all")
@@ -176,40 +235,82 @@ class FloatingPet:
     def _draw_ball(self):
         c = self.canvas
         cx, cy = W_MIN // 2, H_MIN // 2
-        r = 20
-        c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                       fill="#2A2A2A", outline="#5A4D3E", width=1)
-        c.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill="white", outline="")
-        c.create_oval(cx - 4, cy - 4, cx + 4, cy + 4, fill="#2D8B57", outline="")
-        c.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#1A1210", outline="")
+        # 底部阴影
+        c.create_oval(cx - 16, cy - 8, cx + 16, cy + 20,
+                      fill="#12161D", outline="")
+        # 外光环
+        c.create_oval(cx - 21, cy - 21, cx + 21, cy + 21,
+                      fill="#2A333C", outline="")
+        # 同心椭圆叠出渐变光泽
+        for r, col in [(19, "#26303E"), (16, "#2C3948"), (13, "#35455A"),
+                       (10, "#3F536B"), (7, "#4A617C")]:
+            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="")
+        # 左上高光
+        c.create_oval(cx - 12, cy - 14, cx - 3, cy - 5,
+                      fill="#6E8BAE", outline="")
+        c.create_oval(cx - 10, cy - 12, cx - 5, cy - 7,
+                      fill="#A6BEDA", outline="")
+        # 状态点 + 圆环
         d = self.data.get("direction", {})
         color = UP_COLOR if d.get("prediction", 0) == 1 else DOWN_COLOR
-        c.create_oval(cx + r - 5, cy - r + 2, cx + r + 1, cy - r + 8,
-                       fill=color, outline="")
+        dx, dy = cx + 11, cy - 11
+        c.create_oval(dx - 7, dy - 7, dx + 7, dy + 7,
+                      fill="#1E222A", outline=color)
+        c.create_oval(dx - 4, dy - 4, dx + 4, dy + 4, fill=color, outline="")
 
     def _draw_full(self):
         c = self.canvas
 
-        # 角色图片
+        # 圆角卡片
+        self._round_rect(c, 3, 3, self.W - 3, self.H - 3, 16,
+                         fill=BG, outline=DIVIDER, width=1)
+
+        # 角色图底板
+        self._round_rect(c, 10, 6, 146, 134, 12, fill=PANEL, outline="")
+
+        # 角色图片（黑底原图，直接承接在卡片上）
         img = self.img_form1 if self.show_form1 else self.img_form2
         if img:
-            iw = img.width()
-            c.create_image(5 + iw // 2, self.H // 2, image=img)
+            c.create_image(78, 70, image=img)
 
-        # 分隔线
-        c.create_line(150, 6, 150, self.H - 6, fill="#2A2A2A", width=1)
+        # 当前形态小标签
+        label = "形态 1" if self.show_form1 else "形态 2"
+        self._round_rect(c, 55, 138, 101, 154, 8, fill=BTN_BG, outline="")
+        c.create_text(78, 146, text=label, fill=ACCENT,
+                      font=(TITLE_FONT, 8))
 
-        # 数据（从 y=16 开始，每行留足间距）
-        self._draw_data(162)
+        # 竖向分隔线
+        c.create_line(150, 16, 150, 148, fill=DIVIDER, width=1)
+
+        # 数据区
+        self._draw_data(160)
 
         # 按钮栏
-        bx = self.W - 14
-        c.create_text(bx, 12, text="✕", fill="#555",
-                       font=("Microsoft YaHei", 13))
-        c.create_text(bx - 22, 12, text="—", fill="#555",
-                       font=("Microsoft YaHei", 13))
-        c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
-                       fill="#777", font=("Microsoft YaHei", 13))
+        self._draw_buttons()
+
+    def _draw_buttons(self):
+        c = self.canvas
+        for bid, cx in BTN_XS.items():
+            hover = self._hover == bid
+            if bid == "close":
+                bg = BTN_CLOSE_HOVER if hover else BTN_BG
+            else:
+                bg = BTN_HOVER if hover else BTN_BG
+            c.create_oval(cx - BTN_R, BTN_Y - BTN_R, cx + BTN_R, BTN_Y + BTN_R,
+                          fill=bg, outline="", tags="btn")
+            fg = TEXT_HI if hover else TEXT_MD
+            if bid == "close":
+                txt = "✕"
+            elif bid == "min":
+                txt = "—"
+            else:
+                txt = "🔇" if self.mute else "🔊"
+            c.create_text(cx, BTN_Y, text=txt, fill=fg,
+                          font=(TITLE_FONT, 8), tags="btn")
+
+    def _redraw_buttons(self):
+        self.canvas.delete("btn")
+        self._draw_buttons()
 
     def _draw_data(self, x):
         c = self.canvas
@@ -219,9 +320,14 @@ class FloatingPet:
         rate = self.data.get("base_rate", 0)
         as_of = self.data.get("as_of", "")[:10]
 
+        # 标题区
+        c.create_oval(x, 22, x + 6, 28, fill=ACCENT, outline="")
+        c.create_text(x + 12, 25, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
+                      font=(TITLE_FONT, 9))
+
         if not self.data:
             c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
-                          fill=TEXT_DIM, font=("Microsoft YaHei", 13))
+                          fill=TEXT_DIM, font=(TITLE_FONT, 13))
             return
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
@@ -229,22 +335,23 @@ class FloatingPet:
         pct = f"{conf * 100:.0f}%"
         rate_text = f"1元 = {rate:.2f} 卢布" if rate else ""
 
-        top_pad = 8
-        bot_pad = 8
-        area_h = self.H - top_pad - bot_pad
-        line_gap = area_h // 5
-
-        y = top_pad + line_gap
-        F = ("Microsoft YaHei", 13)
-
-        c.create_text(x, y, anchor="w", text=arrow, fill=color, font=F)
-        y += line_gap
-        c.create_text(x, y, anchor="w", text=f"{pct} 把握", fill=TEXT_HI, font=F)
-        y += line_gap
+        c.create_text(x, 52, anchor="w", text=arrow, fill=color,
+                      font=(TITLE_FONT, 15, "bold"))
+        c.create_text(x, 74, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
+                      font=(TITLE_FONT, 13, "bold"))
         if rate_text:
-            c.create_text(x, y, anchor="w", text=rate_text, fill=TEXT_MD, font=F)
-        y += line_gap
-        c.create_text(x, y, anchor="w", text=as_of, fill=TEXT_DIM, font=F)
+            c.create_text(x, 94, anchor="w", text=rate_text, fill=TEXT_MD,
+                          font=(TITLE_FONT, 11))
+        if as_of:
+            c.create_text(x, 112, anchor="w", text=as_of, fill=TEXT_DIM,
+                          font=(TITLE_FONT, 9))
+
+        # 置信度条
+        bx1, bx2, by = x, x + 118, 130
+        self._round_rect(c, bx1, by, bx2, by + 4, 2, fill=DIVIDER, outline="")
+        ratio = max(0.0, min(1.0, conf))
+        fillw = bx1 + max(4, int((bx2 - bx1) * ratio))
+        self._round_rect(c, bx1, by, fillw, by + 4, 2, fill=color, outline="")
 
     def run(self):
         self.root.mainloop()
