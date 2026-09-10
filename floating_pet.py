@@ -52,7 +52,7 @@ IMG_TARGET_H = 120
 IMG_TARGET_W = 118
 
 W_FULL, H_FULL = 300, 165
-W_MIN, H_MIN = 84, 84
+W_MIN, H_MIN = 48, 48
 
 BTN_R = 7
 BTN_Y = 20
@@ -295,7 +295,7 @@ class FloatingPet:
         c = self.canvas
         cx, cy = W_MIN // 2, W_MIN // 2
         breath = math.sin(self.frame * math.pi / 2) * 2
-        # 身体（黄色圆，半径42）
+        # 身体（黄色圆）
         body_r = 42
         c.create_oval(cx - body_r, cy - body_r + breath,
                        cx + body_r, cy + body_r + breath,
