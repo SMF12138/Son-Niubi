@@ -26,7 +26,7 @@ UP_COLOR = "#FF6B5E"
 DOWN_COLOR = "#35D0A0"
 IMG_TARGET_H = 130
 
-W_FULL, H_FULL = 280, 160
+W_FULL, H_FULL = 300, 165
 W_MIN, H_MIN = 44, 44
 
 
@@ -195,19 +195,19 @@ class FloatingPet:
             c.create_image(5 + iw // 2, self.H // 2, image=img)
 
         # 分隔线
-        c.create_line(145, 6, 145, self.H - 6, fill="#2A2A2A", width=1)
+        c.create_line(150, 6, 150, self.H - 6, fill="#2A2A2A", width=1)
 
-        # 数据
-        self._draw_data(155, 14)
+        # 数据（从 y=16 开始，每行留足间距）
+        self._draw_data(162, 16)
 
         # 按钮栏
-        bx = self.W - 12
+        bx = self.W - 14
         c.create_text(bx, 12, text="✕", fill="#555",
-                       font=("Arial", 12, "bold"))
-        c.create_text(bx - 20, 12, text="—", fill="#555",
                        font=("Arial", 13, "bold"))
-        c.create_text(bx - 42, 12, text="🔇" if self.mute else "🔊",
-                       fill="#777", font=("Arial", 10))
+        c.create_text(bx - 22, 12, text="—", fill="#555",
+                       font=("Arial", 14, "bold"))
+        c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
+                       fill="#777", font=("Arial", 11))
 
     def _draw_data(self, x, y):
         c = self.canvas
@@ -226,21 +226,19 @@ class FloatingPet:
         arrow = "▲ 涨" if pred == 1 else "▼ 跌"
         pct = f"{conf * 100:.0f}%"
 
-        # 方向（大字）
+        # 第1行：方向箭头（大）
         c.create_text(x, y, anchor="w", text=arrow, fill=color,
-                       font=("Microsoft YaHei", 24, "bold"))
-        # 把握
-        c.create_text(x + 60, y + 4, anchor="w", text=pct,
-                       fill=TEXT_HI, font=("Arial", 18, "bold"))
-        c.create_text(x + 60 + len(pct) * 11, y + 8, anchor="w",
-                       text="%", fill=TEXT_DIM, font=("Arial", 11))
-        # 汇率
+                       font=("Microsoft YaHei", 26, "bold"))
+        # 第2行：把握度（下移32px，和方向不重叠）
+        c.create_text(x, y + 34, anchor="w", text=f"{pct} 把握", fill=TEXT_HI,
+                       font=("Microsoft YaHei", 14))
+        # 第3行：汇率
         if rate:
-            c.create_text(x, y + 38, anchor="w",
+            c.create_text(x, y + 64, anchor="w",
                            text=f"1元 = {rate:.2f} 卢布", fill=TEXT_MD,
                            font=("Microsoft YaHei", 11))
-        # 日期
-        c.create_text(x, y + 62, anchor="w", text=as_of,
+        # 第4行：日期
+        c.create_text(x, y + 90, anchor="w", text=as_of,
                        fill=TEXT_DIM, font=("Arial", 9))
 
     def run(self):
