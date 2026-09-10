@@ -58,12 +58,23 @@
 
 ## 快速开始
 
-> 环境要求：**Python 3.10+**（安装时务必勾选 `Add python.exe to PATH`）。首次启动需联网抓取历史数据（CBR 自 2010 年）并跑一遍回测；若网络不可用，看板仍会启动，只是暂时没有数据。
+> 环境要求：**Python 3.10+**。安装时**必须勾选 `Add python.exe to PATH`**（安装器默认不勾，漏了会找不到 Python），装完**重开一次终端**。
+
+**方式一（推荐，双击即可）**
+
+1. 双击 `scripts\setup.bat` —— 建 `.venv`、装依赖、下载 ECharts（仅首次）
+2. 双击 `start.bat` —— 启动仪表盘
+
+**方式二（命令行）**
 
 ```powershell
 .\scripts\setup.ps1    # 建 .venv、装依赖、下载 ECharts（仅首次）
 .\scripts\run.ps1      # 启动仪表盘（自动同步→回测→校准→预测→双层调度）
 ```
+
+> `.ps1` **双击不会执行**（Windows 默认用记事本打开）。命令行方式需先打开 PowerShell 并切到项目目录，或在文件管理器里右键 `setup.ps1` → 使用 PowerShell 运行。若提示"禁止运行脚本"，改用 `powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1`。
+
+> 首次启动需联网抓取历史数据（CBR 自 2010 年）并跑一遍回测；若网络不可用，看板仍会启动，只是暂时没有数据。
 
 分步执行（venv 的 python）：
 

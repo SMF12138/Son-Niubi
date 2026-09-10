@@ -11,8 +11,9 @@ if not exist "%SHORTCUT%" (
 if not exist ".venv\Scripts\pythonw.exe" (
   echo.
   echo ERROR: .venv not found.
-  echo Run scripts\setup.ps1 first to create it and install dependencies.
-  echo setup.ps1 requires Python 3.10+ from https://www.python.org/downloads/
+  echo Run scripts\setup.bat first to create it and install dependencies.
+  echo Requires Python 3.10+ from https://www.python.org/downloads/
+  echo During Python setup, tick 'Add python.exe to PATH'.
   echo.
   pause
   exit /b 1
