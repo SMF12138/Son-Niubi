@@ -209,7 +209,7 @@ class FloatingPet:
         c.create_text(bx - 44, 12, text="🔇" if self.mute else "🔊",
                        fill="#777", font=("Arial", 11))
 
-    def _draw_data(self, x, y_start):
+    def _draw_data(self, x):
         c = self.canvas
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
@@ -218,7 +218,7 @@ class FloatingPet:
         as_of = self.data.get("as_of", "")[:10]
 
         if not self.data:
-            c.create_text(x, y_start + 35, anchor="w", text="等待数据…",
+            c.create_text(x, self.H // 2, anchor="w", text="等待数据…",
                           fill=TEXT_DIM, font=("Microsoft YaHei", 10))
             return
 
