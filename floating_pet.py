@@ -60,6 +60,15 @@ BTN_XS = {"mute": 248, "min": 267, "close": 286}
 
 FONT = "Microsoft YaHei"  # 全局统一字体
 
+# 第一版角色颜色
+BODY_YELLOW = "#F5D547"
+BODY_DARK = "#E8C83A"
+BELLY_WHITE = "#FFF8E8"
+EYE_GREEN = "#2D8B57"
+EYE_BLACK = "#1A1210"
+MOUTH_PINK = "#E85A6A"
+ARM_YELLOW = "#EDCA3C"
+
 
 class FloatingPet:
     def __init__(self):
@@ -282,50 +291,64 @@ class FloatingPet:
             self.root.after(200, self._draw)  # 200ms 更新一次
 
     def _draw_ball(self):
-        """悬浮球：第一版风格（黄色圆+绿眼睛+呼吸动画），简化为48x48"""
+        """悬浮球：第一版角色（黄色圆+绿眼睛+呼吸动画），缩放到48x48"""
         c = self.canvas
-        cx, cy = W_MIN // 2, H_MIN // 2
-        
-        # 呼吸动画（上下浮动）
+        cx, cy = W_MIN // 2, W_MIN // 2
         breath = math.sin(self.frame * math.pi / 2) * 2
-        cy += breath
-        
         # 身体（黄色圆，半径20）
         body_r = 20
-        c.create_oval(cx - body_r, cy - body_r, cx + body_r, cy + body_r,
-                      fill="#FFD93D", outline="#D4A843", width=2)
-        
-        # 眼睛（绿色虹膜，居中偏上）
-        eye_x, eye_y = cx - 3, cy - 2
+        c.create_oval(cx - body_r, cy - body_r + breath,
+                       cx + body_r, cy + body_r + breath,
+                       fill=BODY_YELLOW, outline=BODY_DARK, width=2)
+        # 白肚皮（下方椭圆）
+        belly_w, belly_h = 13, 10
+        c.create_oval(cx - belly_w, cy + 2 + breath,
+                       cx + belly_w, cy + 2 + belly_h + breath,
+                       fill=BELLY_WHITE, outline="")
+        # 手臂（右侧小圆）
+        arm_x = cx + body_r - 4
+        arm_y = cy + 2 + breath
+        arm_r = 6
+        c.create_oval(arm_x - arm_r, arm_y - arm_r,
+                       arm_x + arm_r, arm_y + arm_r,
+                       fill=ARM_YELLOW, outline=BODY_DARK, width=1)
+        # 眼睛
+        eye_x, eye_y = cx - 3, cy - 5 + breath
         eye_r = 7
         # 白底
-        c.create_oval(eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r,
-                      fill="white", outline="#D4A843", width=1)
+        c.create_oval(eye_x - eye_r, eye_y - eye_r,
+                       eye_x + eye_r, eye_y + eye_r,
+                       fill="white", outline=BODY_DARK, width=1)
         # 绿虹膜
         iris_r = 5
-        c.create_oval(eye_x - iris_r, eye_y - iris_r, eye_x + iris_r, eye_y + iris_r,
-                      fill="#4FD1C5", outline="")
+        c.create_oval(eye_x - iris_r, eye_y - iris_r,
+                       eye_x + iris_r, eye_y + iris_r,
+                       fill=EYE_GREEN, outline="")
         # 黑瞳孔
         pupil_r = 2
-        c.create_oval(eye_x - pupil_r, eye_y - pupil_r, eye_x + pupil_r, eye_y + pupil_r,
-                      fill="#1A1D24", outline="")
+        c.create_oval(eye_x - pupil_r, eye_y - pupil_r,
+                       eye_x + pupil_r, eye_y + pupil_r,
+                       fill=EYE_BLACK, outline="")
         # 高光
         hl_x, hl_y = eye_x - 2, eye_y - 2
         c.create_oval(hl_x - 1, hl_y - 1, hl_x + 1, hl_y + 1,
-                      fill="white", outline="")
-        
-        # 嘴巴（根据情绪）
-        mouth_y = cy + 10
+                       fill="white", outline="")
+        # 嘴巴
+        mouth_y = cy + 9 + breath
         d = self.data.get("direction", {})
         pred = d.get("prediction", 0)
         if pred == 1:
-            # 看涨：开心弧线
-            c.create_arc(cx - 6, mouth_y - 4, cx + 6, mouth_y + 4,
-                         start=200, extent=140, style="arc", outline="#D4A843", width=2)
+            # 看涨：开心嘴巴
+            c.create_arc(cx - 5, mouth_y - 3, cx + 5, mouth_y + 4,
+                         start=200, extent=140, style="arc",
+                         outline=MOUTH_PINK, width=2)
+            c.create_oval(cx - 3, mouth_y, cx + 3, mouth_y + 3,
+                          fill=MOUTH_PINK, outline="")
         else:
-            # 看跌：担心弧线
-            c.create_arc(cx - 6, mouth_y - 2, cx + 6, mouth_y + 6,
-                         start=20, extent=140, style="arc", outline="#D4A843", width=2)
+            # 看跌：担心小嘴
+            c.create_arc(cx - 4, mouth_y + 2, cx + 4, mouth_y - 1,
+                         start=20, extent=140, style="arc",
+                         outline=MOUTH_PINK, width=2)
 
     def _draw_full(self):
         c = self.canvas
