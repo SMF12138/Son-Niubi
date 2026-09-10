@@ -361,12 +361,31 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
                 default_tbl = _DEFAULT_CAL.get(N, _DEFAULT_CAL[7])
                 cal_n[bk] = default_tbl.get(bk, 0.6)
 
-        # 强制单调: z00 <= z05 <= z10 <= z15(偏离越大置信越高)
+        # 相邻档若出现非单调(偏离更大的档命中率反而更低), 用两比例检验判断差异是否真实:
+        #   * 统计上不可区分(|z|<1.96, 双侧) -> 两档**样本量加权池化**。
+        #     池化是双向收敛(z05 下调、z10 上调), 且样本合并后方差更小, 比"把高档抬到低档的值"更可信。
+        #   * 差异确实可区分 -> **保留各自实测值**, 如实显示非单调, 不掩盖。
+        # 旧实现无条件 cal_n[cur] = cal_n[prev], 只会**单向上抬**; 实测 N=7 的 z10 因此
+        # 从 0.6452(n=124) 被抬到 0.7212(+7.6pp) —— 发布了数据不支持的数字。
         monotonic_keys = ["z00", "z05", "z10", "z15"]
-        for j in range(1, len(monotonic_keys)):
-            prev_k, cur_k = monotonic_keys[j - 1], monotonic_keys[j]
-            if cal_n[cur_k] < cal_n[prev_k]:
-                cal_n[cur_k] = cal_n[prev_k]
+        for _ in range(len(monotonic_keys)):   # 池化只会合并, 有界重复即可收敛
+            merged = False
+            for j in range(1, len(monotonic_keys)):
+                lo, hi = monotonic_keys[j - 1], monotonic_keys[j]
+                if cal_n[hi] >= cal_n[lo]:
+                    continue
+                n_lo, n_hi = bucket_total[lo], bucket_total[hi]
+                if n_lo < 20 or n_hi < 20:
+                    continue       # 样本不足者已回退默认值, 不参与池化
+                p_lo, p_hi = bucket_hits[lo] / n_lo, bucket_hits[hi] / n_hi
+                se = float(np.sqrt(p_lo * (1 - p_lo) / n_lo + p_hi * (1 - p_hi) / n_hi))
+                if se <= 0 or abs((p_hi - p_lo) / se) >= 1.96:
+                    continue       # 差异真实 -> 保留实测值
+                cal_n[lo] = cal_n[hi] = round(
+                    (bucket_hits[lo] + bucket_hits[hi]) / (n_lo + n_hi), 4)
+                merged = True
+            if not merged:
+                break
         cal[N] = cal_n
 
         # 分档 cap = 该桶校准准确率

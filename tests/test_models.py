@@ -21,7 +21,13 @@ from app.forecast import build_projection
 
 
 class TestCalibrationMonotonicity(unittest.TestCase):
-    """T11: 校准值必须单调递增(z00 <= z05 <= z10 <= z15)。"""
+    """T11: 校准值单调(z00 <= z05 <= z10 <= z15)。
+
+    注意契约已变: calibrate_moex_z **不再无条件强制单调**。相邻档非单调时, 仅当两档差异
+    统计上不可区分(两比例检验 |z|<1.96)才做样本量加权池化; 差异真实则如实保留非单调。
+    所以这里校验的是"当前数据下确实单调"。**若将来失败, 先判断该反转是否统计显著**
+    (显著 = "偏离越大越准"的模型假设失效, 需人工决断), 不要直接改回强制单调。
+    """
 
     def test_default_cal_monotonic(self):
         for N, tbl in _DEFAULT_CAL.items():
