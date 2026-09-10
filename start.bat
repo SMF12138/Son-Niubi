@@ -1,5 +1,5 @@
 @echo off
-REM Start: Flask + desktop pet + browser. No lingering windows.
+REM Start: Flask + desktop pet. Browser opens when switching pet form.
 cd /d "%~dp0"
 
 REM Desktop shortcut (first run only)
@@ -14,21 +14,18 @@ if not exist ".venv\Scripts\pythonw.exe" (
   exit /b 1
 )
 
-REM If service already running, just open browser
+REM If service already running, just start pet
 powershell -NoProfile -Command "try { Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %errorlevel%==0 (
-  start "" "http://127.0.0.1:8000"
+  start /min "" ".venv\Scripts\python.exe" floating_pet.py
   exit /b 0
 )
 
-REM Launch Flask (background, no window)
+REM Launch Flask (background, no window, no browser)
 start "" ".venv\Scripts\pythonw.exe" -m app.cli serve --no-browser
 
 REM Launch desktop pet (minimized console)
 start /min "" ".venv\Scripts\python.exe" floating_pet.py
-
-REM Open browser immediately
-start "" "http://127.0.0.1:8000"
 
 REM Exit this cmd window
 exit /b 0

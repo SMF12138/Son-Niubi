@@ -83,12 +83,14 @@ class FloatingPet:
             self.mute = not self.mute
             self._draw()
             return
-        # 左侧角色区 → 切换形态 + 播放语音
+        # 左侧角色区 → 切换形态 + 播放语音 + 弹出网页
         if e.x < 170:
             self.show_form1 = not self.show_form1
             self._draw()
             if not self.mute:
                 self._play_voice()
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:8000")
             return
         # 右侧数据区 → 拖拽
         self._drag_data = {"x": e.x, "y": e.y}
