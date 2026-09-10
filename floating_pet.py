@@ -147,7 +147,7 @@ class FloatingPet:
         """日期块区域: 右侧底部，返回 horizon 或 None"""
         if x < 160 or not (128 <= y <= 154):
             return None
-        seg_w = 28  # 实际按钮宽度（draw_horizon_bar 里 x2 = x1 + seg_w - 2）
+        seg_w = 28  # 实际按钮宽度
         idx = int((x - 160) // seg_w)
         if 0 <= idx < len(HORIZONS):
             return HORIZONS[idx]
@@ -276,19 +276,25 @@ class FloatingPet:
             self._draw_full()
 
     def _draw_ball(self):
+        """悬浮球：渐变光泽 + 高光 + 阴影（f489a21 原版）"""
         c = self.canvas
         cx, cy = W_MIN // 2, H_MIN // 2
+        # 底部阴影
         c.create_oval(cx - 16, cy - 8, cx + 16, cy + 20,
                       fill="#12161D", outline="")
+        # 外光环
         c.create_oval(cx - 21, cy - 21, cx + 21, cy + 21,
                       fill="#2A333C", outline="")
+        # 同心椭圆叠出渐变光泽
         for r, col in [(19, "#26303E"), (16, "#2C3948"), (13, "#35455A"),
                        (10, "#3F536B"), (7, "#4A617C")]:
             c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="")
+        # 左上高光
         c.create_oval(cx - 12, cy - 14, cx - 3, cy - 5,
                       fill="#6E8BAE", outline="")
         c.create_oval(cx - 10, cy - 12, cx - 5, cy - 7,
                       fill="#A6BEDA", outline="")
+        # 状态点 + 圆环
         d = self.data.get("direction", {})
         color = UP_COLOR if d.get("prediction", 0) == 1 else DOWN_COLOR
         dx, dy = cx + 11, cy - 11
@@ -350,7 +356,7 @@ class FloatingPet:
         pct = f"{conf * 100:.2f}%"
         rate_text = f"{rate:.2f} ₽/¥" if rate else ""
 
-        # 标题区（与右上按钮同行 y=20）
+        # 标题区
         c.create_oval(x0, 20, x0 + 6, 26, fill=ACCENT, outline="")
         c.create_text(x0 + 12, 23, anchor="w", text="CNY / RUB", fill=TEXT_DIM,
                       font=(FONT, 10))
