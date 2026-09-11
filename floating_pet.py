@@ -12,6 +12,7 @@
 - 每 5s 读 forecast_*.json 刷新数据
 - 日期块切换 7/30/60/90 日 horizon，数据联动
 """
+import datetime as dt
 import json
 import math
 import tkinter as tk
@@ -30,6 +31,9 @@ FORM1 = ROOT / "data" / "pet" / "form1.png"
 FORM2 = ROOT / "data" / "pet" / "form2.png"
 VOICE1 = ROOT / "data" / "pet" / "voice1.wav"
 VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
+# MOEX 实时市场价(Flask 快层每 60s 写一次), 仅供桌宠显示, 不参与预测
+LIVE_FILE = ROOT / "data" / "moex_live.json"
+LIVE_STALE_SEC = 600        # 超过 10 分钟没更新视为失效, 回退官方牌价
 
 # 透明键色
 TRANSPARENT_KEY = "#FF00FE"
@@ -343,6 +347,8 @@ class FloatingPet:
         self.auto_browser = bool(cfg.get("auto_browser", True))
         self.data = {}
         self.last_mtime = 0
+        self.live = {}
+        self._live_mtime = 0
         self.horizon = cfg.get("horizon") if cfg.get("horizon") in HORIZONS else 7
         self._hovers = set()
         self._drag_offset = (0, 0)   # 按下时 光标屏幕坐标 - 窗口左上角
@@ -552,10 +558,41 @@ class FloatingPet:
         except Exception:
             pass
 
+    def _read_live(self):
+        """读 MOEX 实时市场价。文件缺失/损坏/过期 -> 清空, 由 _draw_data 回退官方牌价。"""
+        try:
+            if not LIVE_FILE.exists():
+                self.live = {}
+                return
+            mtime = LIVE_FILE.stat().st_mtime
+            if mtime != self._live_mtime:
+                self._live_mtime = mtime
+                obj = json.loads(LIVE_FILE.read_text(encoding="utf-8"))
+                self.live = obj if isinstance(obj, dict) else {}
+        except Exception:
+            self.live = {}
+            return
+        # 新鲜度: 快层每 60s 写一次, 太久没更新说明调度器/网络已断, 不能当实时价用
+        price = self.live.get("price")
+        stamp = self.live.get("fetched_at")
+        if (not isinstance(stamp, str)
+                or not isinstance(price, (int, float)) or price <= 0):
+            self.live = {}
+            return
+        try:
+            age = (dt.datetime.now()
+                   - dt.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")).total_seconds()
+        except ValueError:
+            self.live = {}
+            return
+        if age > LIVE_STALE_SEC or age < -60:
+            self.live = {}
+
     def _refresh_data(self):
         """唯一一条 5s 定时链, 只在 __init__ 启动一次。
         先排下一拍再绘制: 绘制出任何异常都不得掐断刷新链(无控制台, 断了无人知)。"""
         self.root.after(5000, self._refresh_data)
+        self._read_live()
         self._read_forecast()
         self._draw()
 
@@ -707,9 +744,17 @@ class FloatingPet:
         # 下面三个字段一律类型收敛: forecast JSON 一旦被写坏, 桌宠无控制台, 崩了没人知道
         conf = d.get("confidence")
         conf = conf if isinstance(conf, (int, float)) else 0.5
+        # 显示价: 优先 MOEX 实时市场价(第二行配时间 HH:MM), 取不到回退 forecast 里的
+        # 官方牌价(第二行配日期 YYYY-MM-DD)。标签文字不变, 口径差异靠这一行格式区分。
+        live_price = self.live.get("price")
+        live_price = (live_price if isinstance(live_price, (int, float))
+                      and live_price > 0 else None)
         rate = self.data.get("base_rate")
         rate = rate if isinstance(rate, (int, float)) else 0
         as_of = str(self.data.get("as_of") or "")[:10]
+        if live_price:
+            rate = live_price
+            as_of = str(self.live.get("time") or "")
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"

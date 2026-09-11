@@ -33,12 +33,14 @@ def _fetch_data():
     from app.data.news import fetch_news
     from app.data.cbr_rates import fetch_key_rate
     from app.data.moex_rates import fetch_moex_onshore
+    from app.data.moex_live import write_live
 
     now = time.time()
     sources = [("CBR", lambda: fetcher.sync()),
                ("oil", fetcher.fetch_oil_prices),
                ("key_rate", fetch_key_rate),
-               ("moex", fetch_moex_onshore)]
+               ("moex", fetch_moex_onshore),
+               ("moex_live", write_live)]
     # 新闻: 仅冷却期过后才抓取
     if now - _last_news_fetch >= NEWS_COOLDOWN:
         sources.append(("news", fetch_news))

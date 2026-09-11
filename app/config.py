@@ -10,6 +10,7 @@ FORECAST_30_JSON = DATA_DIR / "forecast_30.json"
 FORECAST_60_JSON = DATA_DIR / "forecast_60.json"
 FORECAST_90_JSON = DATA_DIR / "forecast_90.json"
 DIRECTION_JSON = DATA_DIR / "direction_result.json"
+MOEX_LIVE_JSON = DATA_DIR / "moex_live.json"
 FORECAST_JSONS = {7: FORECAST_7_JSON, 30: FORECAST_30_JSON,
                   60: FORECAST_60_JSON, 90: FORECAST_90_JSON}
 STATIC_DIR = ROOT / "app" / "web" / "static"
