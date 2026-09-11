@@ -10,6 +10,8 @@ from datetime import datetime
 
 import requests
 
+from app.data import http
+
 log = logging.getLogger(__name__)
 
 # Google News RSS 搜索关键词(英文,覆盖俄罗斯/卢布/油价/制裁)
@@ -93,7 +95,7 @@ def fetch_news() -> dict:
     for query in _QUERIES:
         url = f"https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
         try:
-            resp = _REQ.get(url, timeout=15)
+            resp = http.get(url, timeout=15, session=_REQ)
             resp.raise_for_status()
             root = ET.fromstring(resp.text)
             for item in root.findall(".//item"):

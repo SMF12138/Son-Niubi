@@ -10,9 +10,9 @@
 """
 import json
 import logging
-import urllib.request
 
 from app import config
+from app.data import http
 
 log = logging.getLogger(__name__)
 
@@ -46,9 +46,8 @@ def fetch_moex_onshore(from_date: str | None = None) -> dict:
     start = 0
     for _ in range(MAX_PAGES):
         url = f"{_BASE}?from={from_date}&interval=24&iss.meta=off&start={start}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         try:
-            d = json.loads(urllib.request.urlopen(req, timeout=8).read())
+            d = json.loads(http.open_url(url, timeout=8).read())
         except Exception as e:  # noqa: BLE001
             log.warning("MOEX 抓取失败: %s", e)
             break

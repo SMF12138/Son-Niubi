@@ -10,6 +10,8 @@ from datetime import datetime
 
 import requests
 
+from app.data import http
+
 log = logging.getLogger(__name__)
 
 _REQ = requests.Session()
@@ -52,7 +54,7 @@ def fetch_key_rate() -> dict:
     to_date = datetime.now().strftime("%d.%m.%Y")
     url = _KEY_RATE_URL.format(from_date=from_date, to_date=to_date)
     try:
-        resp = _REQ.get(url, timeout=30)
+        resp = http.get(url, timeout=30, session=_REQ)
         resp.raise_for_status()
         rows = _parse_cbr_html(resp.text)
         if rows:

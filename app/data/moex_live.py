@@ -11,9 +11,9 @@
 import datetime as dt
 import json
 import logging
-import urllib.request
 
 from app import config
+from app.data import http
 
 log = logging.getLogger(__name__)
 
@@ -35,9 +35,8 @@ def fetch_latest(day: dt.date | None = None) -> dict | None:
     for back in range(_LOOKBACK_DAYS):
         d = (today - dt.timedelta(days=back)).isoformat()
         url = f"{_BASE}?from={d}&till={d}&interval=10&iss.meta=off&start=0"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         try:
-            payload = json.loads(urllib.request.urlopen(req, timeout=8).read())
+            payload = json.loads(http.open_url(url, timeout=8).read())
         except Exception as e:      # noqa: BLE001
             if not _err_logged:
                 log.warning("MOEX 分钟线抓取失败(后续连续失败不再重复记录): %s", e)

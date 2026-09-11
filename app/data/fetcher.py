@@ -13,6 +13,7 @@ import requests
 log = logging.getLogger(__name__)
 
 from app import config
+from app.data import http
 from app.data import store
 
 REQ = requests.Session()
@@ -41,7 +42,8 @@ def fetch_dynamic(code: str, d_from: dt.date, d_to: dt.date) -> dict[str, float]
             "date_req2": hi.strftime("%d/%m/%Y"),
             "VAL_NM_RQ": code,
         }
-        resp = REQ.get(config.CBR_DYNAMIC_URL, params=params, timeout=config.HTTP_TIMEOUT)
+        resp = http.get(config.CBR_DYNAMIC_URL, params=params,
+                        timeout=config.HTTP_TIMEOUT, session=REQ)
         resp.raise_for_status()
         if not resp.content.strip().startswith(b"<?xml"):
             raise RuntimeError(f"CBR 返回异常(HTTP {resp.status_code})")
@@ -54,7 +56,7 @@ def fetch_dynamic(code: str, d_from: dt.date, d_to: dt.date) -> dict[str, float]
 def fetch_daily_asof() -> dt.date | None:
     """XML_daily 的 Date 属性 = 官方最新牌价所属日期;失败返回 None。"""
     try:
-        resp = REQ.get(config.CBR_DAILY_URL, timeout=config.HTTP_TIMEOUT)
+        resp = http.get(config.CBR_DAILY_URL, timeout=config.HTTP_TIMEOUT, session=REQ)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
         return dt.datetime.strptime(root.get("Date"), "%d.%m.%Y").date()
@@ -65,7 +67,7 @@ def fetch_daily_asof() -> dt.date | None:
 def fetch_er_api_cny_latest() -> tuple[dt.date, float] | None:
     """降级源:open.er-api.com,免密钥,1 CNY = X RUB(市场中间价)。"""
     try:
-        resp = REQ.get(config.ER_API_LATEST_URL, timeout=config.HTTP_TIMEOUT)
+        resp = http.get(config.ER_API_LATEST_URL, timeout=config.HTTP_TIMEOUT, session=REQ)
         resp.raise_for_status()
         j = resp.json()
         rub = float(j["rates"]["RUB"])
@@ -143,7 +145,7 @@ def fetch_oil_prices() -> dict:
 
     # 主源:GitHub datasets/oil-prices (历史完整, 可能延迟数天)
     try:
-        resp = REQ.get(config.BRENT_CSV_URL, timeout=config.HTTP_TIMEOUT)
+        resp = http.get(config.BRENT_CSV_URL, timeout=config.HTTP_TIMEOUT, session=REQ)
         resp.raise_for_status()
         reader = csv.DictReader(io.StringIO(resp.text))
         rows = []
@@ -169,7 +171,7 @@ def fetch_oil_prices() -> dict:
         try:
             url = ("https://query1.finance.yahoo.com/v8/finance/chart/BZ=F"
                    "?range=3mo&interval=1d")
-            resp = REQ.get(url, timeout=5)
+            resp = http.get(url, timeout=5, session=REQ)
             if resp.status_code != 200:
                 return stats  # 429/超时: 静默跳过, 不拖慢启动
             resp.raise_for_status()
