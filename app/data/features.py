@@ -42,11 +42,11 @@ def build_features(df: pd.DataFrame, oil_df: pd.DataFrame | None = None,
     # 偏离 MA 信号(均值回归)
     F["ma20_dev"] = (S - S.rolling(20).mean())
     F["ma60_dev"] = (S - S.rolling(60).mean())
-    # 趋势斜率
-    F["slope20"] = S.rolling(20).apply(
-        lambda x: np.polyfit(np.arange(len(x)), x, 1)[0] if len(x) == 20 else np.nan,
-        raw=False
-    )
+    # 趋势斜率(20 日 OLS 闭式解, 卷积向量化; 等价于 polyfit 但快两个数量级):
+    # slope = sum(w_k*x_k)/sum(w_k^2), w_k = k-9.5, sum(w^2)=20*(20^2-1)/12=665
+    _w = np.arange(20) - 9.5
+    _ws = np.convolve(S.to_numpy(), _w, mode="valid") / 665.0
+    F["slope20"] = np.concatenate([np.full(19, np.nan), _ws])
 
     # === USD/RUB 交叉特征 ===
     if "usd_rub" in df.columns and df["usd_rub"].notna().mean() > 0.9:
@@ -117,7 +117,9 @@ def build_features(df: pd.DataFrame, oil_df: pd.DataFrame | None = None,
 
     # === CBR 关键利率特征 ===
     if rate_df is not None and not rate_df.empty:
-        rate = rate_df["rate"].reindex(idx).bfill().ffill()
+        # 只能 ffill: 决议日之间沿用"当前"利率。此前 bfill 会把"下一次决议"的利率
+        # 提前填到决议前的日期(前视偏差); 首个利率日之前的行保持 NaN(由 valid 行过滤)。
+        rate = rate_df["rate"].reindex(idx).ffill()
         F["key_rate"] = rate
         F["rate_change"] = rate.diff().fillna(0.0)
         F["rate_change_60d"] = (rate - rate.shift(60)).fillna(0.0)

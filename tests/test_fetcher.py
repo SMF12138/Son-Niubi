@@ -66,6 +66,27 @@ class TestCalendar(unittest.TestCase):
         self.assertEqual(dates[0], dt.date(2026, 1, 9))  # 假期后的首个工作日
 
 
+class TestKeyRateFeature(unittest.TestCase):
+    """H2 回归: key_rate 只能 ffill, 不得用未来决议的利率回填(bfill 前视)。"""
+
+    def test_no_future_rate_leak(self):
+        idx = pd.bdate_range("2026-01-01", periods=30)
+        df = pd.DataFrame({"cny_rub": np.linspace(12.0, 13.0, len(idx)),
+                           "usd_rub": np.linspace(90.0, 91.0, len(idx))}, index=idx)
+        # 首个利率日 1/15=10%, 1/22 加息到 20%
+        rate_df = pd.DataFrame(
+            {"rate": [10.0, 20.0]},
+            index=pd.to_datetime(["2026-01-15", "2026-01-22"]))
+        F = build_features(df, rate_df=rate_df)
+        # 首个利率日之前: NaN(不能被 1/15 的利率回填)
+        self.assertTrue(F["key_rate"].loc[:"2026-01-14"].isna().all())
+        # 决议日之间沿用旧利率, 1/22 之前不得出现 20%
+        between = F["key_rate"].loc["2026-01-15":"2026-01-21"]
+        self.assertTrue((between == 10.0).all())
+        # 1/22 起才是新利率
+        self.assertTrue((F["key_rate"].loc["2026-01-22":] == 20.0).all())
+
+
 class TestFeatures(unittest.TestCase):
     def test_causal_and_bounds(self):
         rng = np.random.default_rng(1)

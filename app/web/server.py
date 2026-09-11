@@ -129,7 +129,12 @@ def create_app() -> Flask:
                 lastd = _dt.date.fromisoformat(df.index[-1].date().isoformat())
                 dates = [(lastd + _dt.timedelta(days=k + 1)).isoformat()
                          for k in range(n)]
-            forecast = build_projection(cur, direction, dates)
+            from app.forecast import recent_daily_vol
+            import numpy as _np
+            daily_vol = recent_daily_vol(
+                _np.log(df["cny_rub"].to_numpy(dtype=float)))
+            forecast = build_projection(cur, direction, dates,
+                                        daily_vol=daily_vol)
         # 每日预测准确率(滚动, 来自 DIRECTION_JSON 的 MOEX 期或历史回测)
         model_acc = None
         if config.DIRECTION_JSON.exists():

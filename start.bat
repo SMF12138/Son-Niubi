@@ -2,11 +2,14 @@
 REM Start: Flask + desktop pet. Browser opens when switching pet form.
 cd /d "%~dp0"
 
-REM Desktop shortcut (first run only)
+REM Desktop shortcut (ask on first run only; no silent system changes)
 set "SHORTCUT=%USERPROFILE%\Desktop\Son niubi.lnk"
 if not exist "%SHORTCUT%" (
+  choice /C YN /M "Create a desktop shortcut for Son niubi"
+  if errorlevel 2 goto skip_shortcut
   powershell -NoProfile -Command "$r='%~dp0'.TrimEnd('\'); $w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut($env:USERPROFILE+'\Desktop\Son niubi.lnk'); $s.TargetPath=Join-Path $r 'start.bat'; $s.WorkingDirectory=$r; $s.IconLocation=(Join-Path $r 'data\tubiao.ico')+',0'; $s.WindowStyle=7; $s.Save()" >nul 2>&1
 )
+:skip_shortcut
 
 if not exist ".venv\Scripts\pythonw.exe" (
   echo.

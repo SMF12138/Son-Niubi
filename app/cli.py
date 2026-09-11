@@ -51,7 +51,8 @@ def cmd_backtest(_):
         h = dir_rep["horizons"].get(str(N))
         if not h: continue
         ca = h.get("confident_accuracy", 0); cn = h.get("confident_windows", 0)
-        print(f"N={N}: 全部{h['accuracy']*100:.1f}% 有信心>60% {ca*100:.1f}%({cn}/{h['windows']})")
+        print(f"N={N}: 全部{h['accuracy']*100:.1f}% "
+              f"高置信>{config.CONFIDENT_THRESHOLD*100:.0f}% {ca*100:.1f}%({cn}/{h['windows']})")
     print(f"回测耗时 {time.time()-t0:.0f}s")
     return 0
 
@@ -108,6 +109,9 @@ def cmd_serve(args):
             calibrate_moex_z(df, oil_df, sent_df, rate_df)
             from app import forecast as fc
             fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+            # 已在启动时跑完慢层全链路, 通知调度器当天不要重复
+            from app import scheduler
+            scheduler.mark_slow_done_today()
         except SystemExit as e:
             # 首次运行且数据源全部抓取失败: 不阻断看板启动, 页面自然显示空数据
             log.warning("历史数据不足, 跳过回测/校准/预测(%s); 看板仍会启动", e)

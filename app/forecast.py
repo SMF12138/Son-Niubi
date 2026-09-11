@@ -14,16 +14,18 @@ from app.data.calendar import future_trading_dates
 from app.data.features import build_features
 
 
-def build_projection(cur_rate, direction, dates):
+def build_projection(cur_rate, direction, dates, daily_vol=None):
     """基于方向结论生成投影路径(中位 + 不确定性带)。
 
     Args:
         cur_rate: 当前汇率(1 CNY = X RUB)
         direction: 方向预测 dict (prediction, confidence, ...)
         dates: 未来日期列表(字符串或 date 对象)
+        daily_vol: 近窗日对数收益标准差; 给定后不确定性带按 sqrt(k) 波动扩散
+            (1 个 sigma, 非严格统计置信区间)。None 时回退历史常数带宽(仅兜底)。
 
-    Returns:
-        list of {date, rate, low, high}
+    注意: 中位线的幅度(0.0161*sig_w)只是"方向示意", 非点估计;
+    真正有数据依据的是带宽随已实现波动率的缩放。
     """
     if not direction or direction.get("prediction") not in (0, 1):
         return []
@@ -43,7 +45,11 @@ def build_projection(cur_rate, direction, dates):
         frac = (k + 1) / n
         path = frac ** 0.7
         p50 = float(np.exp(base + med * path))
-        halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
+        # 有 daily_vol: 1*sigma*sqrt(k) 的波动扩散; 兜底: 旧的经验喇叭口
+        if daily_vol and daily_vol > 0:
+            halfband = daily_vol * math.sqrt(k + 1)
+        else:
+            halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
         lo = float(np.exp(base + med * path - halfband))
         hi = float(np.exp(base + med * path + halfband))
         dt_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
@@ -51,6 +57,17 @@ def build_projection(cur_rate, direction, dates):
                          "low": round(min(lo, p50), 4),
                          "high": round(max(hi, p50), 4)})
     return forecast
+
+
+def recent_daily_vol(lp, window=60):
+    """近 window 个日对数收益的标准差, 供投影带宽标定; 数据不足返回 None。"""
+    if lp is None or len(lp) < 20:
+        return None
+    rets = np.diff(lp[-window - 1:])
+    rets = rets[np.isfinite(rets)]
+    if len(rets) < 20:
+        return None
+    return float(np.std(rets, ddof=1))
 
 
 def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
@@ -71,12 +88,13 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
 
     cur_rate = float(np.exp(lp[-1]))
     base_date = df.index[-1].date()
+    daily_vol = recent_daily_vol(lp)
 
     for N in config.N_HORIZONS:
         dr = predictor.predict_direction(ctx, N)
         fdates = future_trading_dates(base_date, N)
 
-        forecast = build_projection(cur_rate, dr, fdates)
+        forecast = build_projection(cur_rate, dr, fdates, daily_vol=daily_vol)
 
         fc = {
             "N": N,

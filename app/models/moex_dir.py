@@ -46,6 +46,32 @@ _DEFAULT_CAP = {
 _CALIBRATION_PATH = config.DATA_DIR / "calibration.json"
 _CAL_MAX_AGE_SEC = 48 * 3600  # 48小时有效
 
+# |z| 累积分桶(与 calibrate_moex_z 口径一致): 命中第一个满足的阈值即归桶,
+# 所以 z10 桶包含 z>1.5 的样本 —— P(命中 | |z|>阈值), 非互斥分箱。
+_Z_BUCKETS = (("z15", 1.5), ("z10", 1.0), ("z05", 0.5), ("z00", 0.0))
+# OOS 校准中每桶至少要有这么多已实现样本才采用实测命中率, 否则回退内置默认表
+_OOS_MIN_BUCKET_N = 20
+# |z| 低于此值视为"无方向性信号": 预测符号仍给出, 但界面须标注为中性/基础胜率
+_WEAK_Z = 0.3
+
+
+def _bucket_key(az: float) -> str:
+    for bk, thr in _Z_BUCKETS:
+        if az > thr:
+            return bk
+    return "z00"
+
+
+def _oos_bucket_table(N: int, hits: dict, totals: dict) -> dict:
+    """扩展窗样本外校准表: 每桶实测命中率; 样本不足的桶回退内置默认值。
+
+    回测中 t 时刻的置信度只能由"结果已实现"的历史窗口(j+N<=t)统计得到。
+    """
+    default = _DEFAULT_CAL.get(N, _DEFAULT_CAL[7])
+    return {bk: (round(hits[bk] / totals[bk], 4) if totals[bk] >= _OOS_MIN_BUCKET_N
+                 else default[bk])
+            for bk, _ in _Z_BUCKETS}
+
 
 def _load_calibration():
     """从 JSON 加载动态校准值, 过期或缺失则返回 None。"""
@@ -98,11 +124,14 @@ class MoexDirectionPredictor:
 
     def __init__(self):
         self._fallback = MeanRevDirectionPredictor()
-        self._moex_dev = None      # {row_index: raw_dev}
-        self._dev_hist = None      # 升序 (row_index, raw_dev) 用于滚动标准化
-        self._moex_close = None    # {row_index: close}
-        self._moex_hlr = None      # {row_index: (high-low)/close 日内幅
-        self._z = None             # {row_index: 滚动 z(win150)} 用于连续偏离确认}
+        # attach_moex 后填充的对齐数组(按 MOEX 有成交的日期顺序):
+        self._h_idx = None        # np.ndarray: 官方价行号(升序)
+        self._h_pos = None        # {row_index: 在对齐数组中的位置}
+        self._h_dev = None        # np.ndarray: raw_dev
+        self._h_close = None      # np.ndarray: MOEX 收盘
+        self._h_hlr = None        # np.ndarray: (high-low)/close, 缺失为 NaN
+        self._h_hlr_med = None    # np.ndarray: 截至当日的日内幅历史中位(无前视, <30 为 NaN)
+        self._h_z = None          # np.ndarray: 滚动 z(win150), <60 为 NaN
         # 动态校准: 优先 JSON, 回退默认值
         cal, cap, meanrev = _load_calibration()
         self._cal = cal or _DEFAULT_CAL
@@ -115,153 +144,170 @@ class MoexDirectionPredictor:
     def attach_moex(self, dates, off_lp, moex_map, hl_map=None):
         """预计算每个官方交易日的 raw_dev + MOEX 收盘/日内幅(用于多重确认)。
         dates: 官方价日期字符串列表(与 lp 对齐); off_lp: log(官方价);
-        moex_map: {date_str: moex_close}; hl_map: {date_str: (close,high,low)} 可选。"""
-        dev = {}
-        seq = []
-        close = {}
-        hlr = {}
+        moex_map: {date_str: moex_close}; hl_map: {date_str: (close,high,low)} 可选。
+
+        所有派生量一次性预算成对齐数组 —— predict_direction 在回测中被调用
+        数万次, 不得每次都对全历史做列表过滤(旧实现 O(n^2))。"""
+        idxs, devs, closes, hlrs = [], [], [], []
         for i, d in enumerate(dates):
             mv = moex_map.get(d)
             if mv is not None and mv > 0:
-                rd = float(np.log(mv) - off_lp[i])
-                dev[i] = rd
-                seq.append((i, rd))
-                close[i] = mv
+                idxs.append(i)
+                devs.append(float(np.log(mv) - off_lp[i]))
+                closes.append(float(mv))
+                v = np.nan
                 if hl_map and d in hl_map:
                     c, h, lo = hl_map[d]
                     if c and h and lo:
-                        hlr[i] = (h - lo) / c
-        self._moex_dev = dev
-        self._dev_hist = seq
-        self._moex_close = close
-        self._moex_hlr = hlr
-        # 预计算滚动 z 序列(win=150, 无前视), 用于“连续偏离天数”确认
-        self._z = {}
-        devs = [rd for (_, rd) in seq]
-        idxs = [j for (j, _) in seq]
-        for t in range(len(seq)):
+                        v = (h - lo) / c
+                hlrs.append(v)
+        n = len(idxs)
+        self._h_idx = np.asarray(idxs, dtype=int)
+        self._h_pos = {j: t for t, j in enumerate(idxs)}
+        self._h_dev = np.asarray(devs, dtype=float)
+        self._h_close = np.asarray(closes, dtype=float)
+        self._h_hlr = np.asarray(hlrs, dtype=float)
+        # 滚动 z(win=150, 无前视), 至少 60 个 MOEX 日才计算
+        z = np.full(n, np.nan)
+        for t in range(n):
             if t + 1 >= 60:
-                a = np.array(devs[max(0, t + 1 - config.ZDEV_WINDOW):t + 1])
-                self._z[idxs[t]] = (devs[t] - a.mean()) / (a.std() + 1e-9)
+                a = self._h_dev[max(0, t + 1 - config.ZDEV_WINDOW):t + 1]
+                z[t] = (self._h_dev[t] - a.mean()) / (a.std() + 1e-9)
+        self._h_z = z
+        # 截至每个 MOEX 日的日内幅历史中位(只用 <=t 的非缺失值, 至少 30 个)
+        med = np.full(n, np.nan)
+        for t in range(n):
+            hist = self._h_hlr[:t + 1]
+            hist = hist[~np.isnan(hist)]
+            if len(hist) >= 30:
+                med[t] = np.median(hist)
+        self._h_hlr_med = med
 
-    def predict_direction(self, ctx, N):
+    def _resolve_dev_pos(self, i):
+        """返回行 i 应使用的 MOEX 序列位置: 当日, 否则向前 ≤3 个交易日; 无则 None。"""
+        if self._h_pos is None:
+            return None
+        p = self._h_pos.get(i)
+        if p is not None:
+            return p
+        # 在对齐行号数组上二分定位 < i 的最近一个, 要求间隔 ≤3
+        ins = int(np.searchsorted(self._h_idx, i, side="left"))
+        if ins == 0:
+            return None
+        p = ins - 1
+        return p if i - int(self._h_idx[p]) <= 3 else None
+
+    def predict_direction(self, ctx, N, cal_tbl=None, cap_tbl=None,
+                          meanrev_conf=None):
+        """cal_tbl/cap_tbl: 回测时传入的 t 时刻扩展窗样本外校准表(4 桶);
+        meanrev_conf: {N: hit_rate} 给 fallback 预测器的样本外命中率。
+        不传则用实例的全样本动态校准(生产预测时点全部历史可得, 合法)。"""
         i = ctx["i"]
+
+        def _fallback_predict():
+            if meanrev_conf is None:
+                return self._fallback.predict_direction(ctx, N)
+            return self._fallback.predict_direction(ctx, N,
+                                                    conf_override=meanrev_conf)
 
         # === 30天: 优先用均值回复 + USD/RUB 确认 ===
         if 30 <= N < 90:
-            r = self._fallback.predict_direction(ctx, N)
+            r = _fallback_predict()
             if r.get("signal") == "meanrev_strong":
                 return r
             # 均值回复弱信号时,如果也有 MOEX 偏离,混合判断
             # (不直接用 MOEX 做主信号,只作参考)
 
         # === 7天 / 30天无强信号 / 90天: MOEX 偏离(核心信号) ===
-        # 有 MOEX 偏离(当日或最近 ≤3 交易日) → 用它(滚动标准化, 无前视)
-        dev_i = None
-        if self._moex_dev is not None:
-            if i in self._moex_dev:
-                dev_i = self._moex_dev[i]
+        p = self._resolve_dev_pos(i)
+        if p is not None and p + 1 >= 60:
+            arr = self._h_dev[max(0, p + 1 - config.ZDEV_WINDOW):p + 1]
+            mu = arr.mean(); sd = arr.std() + 1e-9
+            z = (self._h_dev[p] - mu) / sd
+            pred = 1 if z > 0 else 0
+            az = abs(z)
+
+            # === 多重确认信号(均当日可得, 无前视) ===
+            confirms = 0
+            # 确认1: MOEX 5日动量与 zdev 同向(取 [i-5, i] 内最前/最后 MOEX 收盘)
+            win_mask = (self._h_idx >= i - 5) & (self._h_idx <= i)
+            win_pos = np.where(win_mask)[0]
+            if len(win_pos) >= 2:
+                mom = (np.log(self._h_close[win_pos[-1]])
+                       - np.log(self._h_close[win_pos[0]]))
+                if (mom > 0) == (z > 0):
+                    confirms += 1
+            # 确认2: 偏离加深(dev 近6个 MOEX 日变化与 z 同号)
+            if p + 1 >= 6:
+                dz = self._h_dev[p] - self._h_dev[p - 5]
+                if np.sign(dz) == np.sign(z):
+                    confirms += 1
+            # 确认3: 高波动日(日内幅 ≥ 历史中位)
+            if p < len(self._h_hlr) and not np.isnan(self._h_hlr[p]) \
+                    and not np.isnan(self._h_hlr_med[p]):
+                if self._h_hlr[p] >= self._h_hlr_med[p]:
+                    confirms += 1
+            # 确认4: 油价20日动量与 zdev 同向(油价涨→卢布走强→CNY/RUB跌)
+            feat_names = ctx.get("feat_names", [])
+            Xf = ctx.get("Xf")
+            if Xf is not None and "brent_ret20" in feat_names:
+                br_idx = feat_names.index("brent_ret20")
+                pos_of2 = np.searchsorted(ctx["valid"], i)
+                if pos_of2 < len(ctx["valid"]) and ctx["valid"][pos_of2] == i:
+                    br20 = Xf[i, br_idx]
+                    if not np.isnan(br20):
+                        # 油价涨→卢布走强→CNY/RUB跌(pred=0), 与 z 同向则确认
+                        oil_pred = 0 if br20 > 0 else 1
+                        if oil_pred == pred:
+                            confirms += 1
+            # 确认5: 近7日新闻情绪与方向一致
+            if Xf is not None and "sentiment_7d" in feat_names:
+                sent_idx = feat_names.index("sentiment_7d")
+                pos_of3 = np.searchsorted(ctx["valid"], i)
+                if pos_of3 < len(ctx["valid"]) and ctx["valid"][pos_of3] == i:
+                    sent7 = Xf[i, sent_idx]
+                    if not np.isnan(sent7) and abs(sent7) > 0.01:
+                        # 负面情绪→CNY/RUB波动大→偏跌
+                        sent_pred = 0 if sent7 < 0 else 1
+                        if sent_pred == pred:
+                            confirms += 1
+            # 确认6: 连续偏离天数(z 方向一致 ≥ 2 日)
+            streak = 0
+            for q in range(p, max(p - 6, -1), -1):
+                zj = self._h_z[q]
+                if not np.isnan(zj) and np.sign(zj) == np.sign(z):
+                    streak += 1
+                else:
+                    break
+            if streak >= 2:
+                confirms += 1
+
+            # === 置信度: 按 horizon 分别校准(OOS 传入 or 全样本动态表) ===
+            # cal_tbl 非空时就是本 horizon 的 4 桶表; 否则从实例的 {N: 表} 取最近 N
+            if cal_tbl is not None:
+                tbl = cal_tbl
+                cap_lookup = cap_tbl if cap_tbl is not None else tbl
             else:
-                # 回退到 <=i 的最近 MOEX 日(间隔 ≤3), 偏离有持续性
-                for j in range(i - 1, max(i - 4, -1), -1):
-                    if j in self._moex_dev:
-                        dev_i = self._moex_dev[j]
-                        break
-        if dev_i is not None:
-            past = [rd for (j, rd) in self._dev_hist if j <= i]
-            if len(past) >= 60:
-                arr = np.array(past[-config.ZDEV_WINDOW:])
-                mu = arr.mean(); sd = arr.std() + 1e-9
-                z = (dev_i - mu) / sd
-                pred = 1 if z > 0 else 0
-                az = abs(z)
-
-                # === 多重确认信号(均当日可得, 无前视) ===
-                confirms = 0
-                # 确认1: MOEX 5日动量与 zdev 同向
-                if self._moex_close:
-                    cj = [j for j in range(i, max(i - 6, -1), -1) if j in self._moex_close]
-                    if len(cj) >= 2:
-                        c_now = self._moex_close[cj[0]]
-                        c_prev = self._moex_close[cj[-1]]
-                        mom = np.log(c_now) - np.log(c_prev)
-                        if (mom > 0) == (z > 0):
-                            confirms += 1
-                # 确认2: 偏离加深(dev 近5日变化与 z 同号)
-                past5 = [rd for (j, rd) in self._dev_hist if j <= i][-6:]
-                if len(past5) >= 6:
-                    dz = past5[-1] - past5[0]
-                    if np.sign(dz) == np.sign(z):
-                        confirms += 1
-                # 确认3: 高波动日(日内幅 ≥ 历史中位)
-                if self._moex_hlr and i in self._moex_hlr:
-                    hist_hlr = [v for (j), v in self._moex_hlr.items() if j <= i]
-                    if len(hist_hlr) >= 30:
-                        if self._moex_hlr[i] >= float(np.median(hist_hlr)):
-                            confirms += 1
-                # 确认4: 油价20日动量与 zdev 同向(油价涨→卢布走强→CNY/RUB跌)
-                feat_names = ctx.get("feat_names", [])
-                Xf = ctx.get("Xf")
-                if Xf is not None and "brent_ret20" in feat_names:
-                    br_idx = feat_names.index("brent_ret20")
-                    pos_of2 = np.searchsorted(ctx["valid"], i)
-                    if pos_of2 < len(ctx["valid"]) and ctx["valid"][pos_of2] == i:
-                        br20 = Xf[i, br_idx]
-                        if not np.isnan(br20):
-                            # 油价涨→卢布走强→CNY/RUB跌(pred=0), 与 z 同向则确认
-                            oil_pred = 0 if br20 > 0 else 1
-                            if oil_pred == pred:
-                                confirms += 1
-                # 确认5: 近7日新闻情绪与方向一致
-                if Xf is not None and "sentiment_7d" in feat_names:
-                    sent_idx = feat_names.index("sentiment_7d")
-                    pos_of3 = np.searchsorted(ctx["valid"], i)
-                    if pos_of3 < len(ctx["valid"]) and ctx["valid"][pos_of3] == i:
-                        sent7 = Xf[i, sent_idx]
-                        if not np.isnan(sent7) and abs(sent7) > 0.01:
-                            # 负面情绪→CNY/RUB波动大→偏跌
-                            sent_pred = 0 if sent7 < 0 else 1
-                            if sent_pred == pred:
-                                confirms += 1
-                # 确认6: 连续偏离天数(z 方向一致 ≥ 2 日)
-                if self._z is not None and self._moex_dev is not None:
-                    zdays = [j for (j, _) in self._dev_hist if j <= i][-6:]
-                    streak = 0
-                    for j in reversed(zdays):
-                        zj = self._z.get(j)
-                        if zj is not None and np.sign(zj) == np.sign(z):
-                            streak += 1
-                        else:
-                            break
-                    if streak >= 2:
-                        confirms += 1
-
-                # === 置信度: 按 horizon 分别校准(动态 or 默认) ===
                 cal_n = min(self._cal.keys(), key=lambda k: abs(k - N))
                 tbl = self._cal[cal_n]
-                cap_tbl = self._cap.get(cal_n, _DEFAULT_CAP.get(cal_n, {}))
-                if az > 1.5:
-                    bucket_key = "z15"
-                elif az > 1.0:
-                    bucket_key = "z10"
-                elif az > 0.5:
-                    bucket_key = "z05"
-                else:
-                    bucket_key = "z00"
-                conf = tbl[bucket_key]
-                cap = cap_tbl.get(bucket_key, 0.7)
-                if confirms >= 3:
-                    conf = min(conf + 0.02, cap)
-                elif confirms >= 2:
-                    conf = min(conf + 0.01, cap)
-                conf = max(0.5, min(conf, cap))
-                pu = conf if pred == 1 else 1 - conf
-                return {"prediction": pred, "confidence": round(conf, 3),
-                        "prob_up": round(pu, 3), "prob_down": round(1 - pu, 3),
-                        "signal": "moex_dev", "z": round(float(z), 3),
-                        "confirms": int(confirms), "horizon": N}
+                cap_lookup = self._cap.get(cal_n, _DEFAULT_CAP.get(cal_n, {}))
+            bucket_key = _bucket_key(az)
+            conf = tbl[bucket_key]
+            cap = cap_lookup.get(bucket_key, 0.7)
+            if confirms >= 3:
+                conf = min(conf + 0.02, cap)
+            elif confirms >= 2:
+                conf = min(conf + 0.01, cap)
+            conf = max(0.5, min(conf, cap))
+            pu = conf if pred == 1 else 1 - conf
+            return {"prediction": pred, "confidence": round(conf, 3),
+                    "prob_up": round(pu, 3), "prob_down": round(1 - pu, 3),
+                    "signal": "moex_dev", "z": round(float(z), 3),
+                    "z_bucket": bucket_key,
+                    "weak_signal": bool(az < _WEAK_Z),
+                    "confirms": int(confirms), "horizon": N}
         # 无 MOEX → 退回均值回复
-        r = self._fallback.predict_direction(ctx, N)
+        r = _fallback_predict()
         r["signal"] = "mean_rev"
         return r
 
@@ -280,47 +326,120 @@ def _build_moex_ctx(df):
 
 
 def run_direction_backtest(df, oil_df=None, sentiment_df=None, rate_df=None):
-    """MOEX 增强方向 walk-forward 回测, 形状与 meanrev_dir 一致。"""
+    """MOEX 增强方向 walk-forward 回测。
+
+    置信度采用**扩展窗样本外(OOS)校准**: 在 t 时刻给预测定置信时, 只用结果
+    已实现的历史窗口(j+N<=t)统计各 |z| 桶命中率; 桶内样本不足 20 个时回退内置
+    默认表。方向符号本身不依赖校准表(z 的正负), 故全样本 accuracy 口径不变;
+    受影响的只有"高置信档命中率"—— 旧实现用全样本(含被评估窗口)校准再回头
+    选档, 该数字偏乐观。生产预测(save_forecasts)仍用全样本 calibration.json,
+    因为实盘时点全部历史结果均已实现, 不存在前视。
+    """
     from app.data.features import build_features
+    from app.models.meanrev_dir import _DEFAULT_MEANREV
     pred, lp, _ = _build_moex_ctx(df)
     m = len(lp)
     Fdf = build_features(df, oil_df=oil_df, sentiment_df=sentiment_df, rate_df=rate_df)
     valid = np.where(Fdf.notna().all(axis=1).to_numpy())[0]
     Xf = Fdf.to_numpy(float); feat_names = list(Fdf.columns)
     first = max(config.MIN_TRAIN, int(valid[0]) if len(valid) else 0)
+    thr = config.CONFIDENT_THRESHOLD
     horizons = {}
     for N in config.N_HORIZONS:
         last = m - 1 - N
-        starts = [i for i in range(first, last + 1)]
+        starts = range(first, last + 1)
         correct = conf_c = conf_t = total = 0
         mx_c = mx_t = mx_cc = mx_ct = 0  # MOEX 覆盖期
+        up = 0
+        # OOS 校准计数: 仅由"已实现"窗口更新
+        b_hits = {bk: 0 for bk, _ in _Z_BUCKETS}
+        b_tot = {bk: 0 for bk, _ in _Z_BUCKETS}
+        mr_hits = mr_tot = 0
+        # 记录每个窗口的预测, 供 N 步后实现时归档: (bucket, pred, signal)
+        records = {}
         for i in starts:
+            # 1) 实现窗口 j=i-N(若存在): 此刻 lp[i]=lp[j+N] 首次可得
+            j = i - N
+            rec = records.pop(j, None)
+            if rec is not None:
+                bk, pred_j, sig_j = rec
+                actual_j = 1 if lp[i] > lp[j] else 0
+                if sig_j == "moex_dev" and bk is not None:
+                    b_tot[bk] += 1
+                    b_hits[bk] += int(pred_j == actual_j)
+                elif sig_j == "meanrev_strong":
+                    mr_tot += 1
+                    mr_hits += int(pred_j == actual_j)
+            # 2) 用只含已实现窗口的校准表给 t=i 的预测定置信
+            cal_tbl = _oos_bucket_table(N, b_hits, b_tot)
+            mr_conf = ({N: round(mr_hits / mr_tot, 4)} if mr_tot >= 20
+                       else {N: _DEFAULT_MEANREV.get(N, 0.55)})
             ctx = {"lp": lp, "i": i, "Xf": Xf, "valid": valid, "feat_names": feat_names}
-            r = pred.predict_direction(ctx, N)
+            r = pred.predict_direction(ctx, N, cal_tbl=cal_tbl, cap_tbl=cal_tbl,
+                                       meanrev_conf=mr_conf)
             actual = 1 if lp[i + N] > lp[i] else 0
+            up += int(actual == 1)
             hit = r["prediction"] == actual
             correct += int(hit); total += 1
-            if r["confidence"] > 0.6:
+            if r["confidence"] > thr:
                 conf_c += int(hit); conf_t += 1
-            if r.get("signal") == "moex_dev":
+            sig = r.get("signal")
+            if sig == "moex_dev":
                 mx_c += int(hit); mx_t += 1
-                if r["confidence"] > 0.6:
+                if r["confidence"] > thr:
                     mx_cc += int(hit); mx_ct += 1
-        up = sum(1 for i in starts if lp[i + N] > lp[i])
+            records[i] = (r.get("z_bucket") if sig == "moex_dev" else None,
+                          r["prediction"],
+                          sig if sig in ("moex_dev", "meanrev_strong") else "other")
         bl = max(up, total - up) / total if total else 0.5
         horizons[str(N)] = {
             "N": N, "windows": total, "accuracy": round(correct / total, 4) if total else 0,
             "confident_accuracy": round(conf_c / conf_t, 4) if conf_t else 0,
             "confident_windows": conf_t,
             "confident_ratio": round(conf_t / total, 4) if total else 0,
+            "confident_threshold": thr,
             "baseline_always_majority": round(bl, 4),
             "moex_accuracy": round(mx_c / mx_t, 4) if mx_t else 0,
             "moex_windows": mx_t,
             "moex_confident_accuracy": round(mx_cc / mx_ct, 4) if mx_ct else 0,
+            "moex_confident_windows": mx_ct,
         }
     return {"meta": {"as_of": df.index[-1].isoformat(), "rows": m,
-                     "model": "MoexDirectionPredictor"},
+                     "model": "MoexDirectionPredictor",
+                     "calibration": "expanding_window_oos",
+                     "confident_threshold": thr},
             "horizons": horizons}
+
+
+def _pool_to_monotonic(cal_n, bucket_hits, bucket_total):
+    """相邻桶非单调时的处理(原地修改 cal_n):
+
+    用两比例检验判断差异是否真实:
+      * 统计上不可区分(|z|<1.96, 双侧) -> 两档**样本量加权池化**。
+        池化是双向收敛, 且样本合并后方差更小, 比"把高档抬到低档的值"更可信。
+      * 差异确实可区分 -> **保留各自实测值**, 如实显示非单调, 不掩盖。
+    旧实现无条件把高档抬到低档的值, 只会**单向上抬**(N=7 z10 曾被虚高 +7.6pp)。
+    """
+    monotonic_keys = ["z00", "z05", "z10", "z15"]
+    for _ in range(len(monotonic_keys)):   # 池化只会合并, 有界重复即可收敛
+        merged = False
+        for j in range(1, len(monotonic_keys)):
+            lo, hi = monotonic_keys[j - 1], monotonic_keys[j]
+            if cal_n[hi] >= cal_n[lo]:
+                continue
+            n_lo, n_hi = bucket_total[lo], bucket_total[hi]
+            if n_lo < 20 or n_hi < 20:
+                continue       # 样本不足者已回退默认值, 不参与池化
+            p_lo, p_hi = bucket_hits[lo] / n_lo, bucket_hits[hi] / n_hi
+            se = float(np.sqrt(p_lo * (1 - p_lo) / n_lo + p_hi * (1 - p_hi) / n_hi))
+            if se <= 0 or abs((p_hi - p_lo) / se) >= 1.96:
+                continue       # 差异真实 -> 保留实测值
+            cal_n[lo] = cal_n[hi] = round(
+                (bucket_hits[lo] + bucket_hits[hi]) / (n_lo + n_hi), 4)
+            merged = True
+        if not merged:
+            break
+    return cal_n
 
 
 def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
@@ -339,9 +458,6 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
     feat_names = list(Fdf.columns)
     first = max(config.MIN_TRAIN, int(valid[0]) if len(valid) else 0)
 
-    # z 分档边界
-    z_buckets = [("z15", 1.5), ("z10", 1.0), ("z05", 0.5), ("z00", 0.0)]
-
     cal = {}
     cap = {}
 
@@ -349,9 +465,9 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
         last = m - 1 - N
         if first > last:
             continue
-        # 每档的命中/总数
-        bucket_hits = {k: 0 for k, _ in z_buckets}
-        bucket_total = {k: 0 for k, _ in z_buckets}
+        # 每档的命中/总数(累积分桶, 口径同 _Z_BUCKETS)
+        bucket_hits = {k: 0 for k, _ in _Z_BUCKETS}
+        bucket_total = {k: 0 for k, _ in _Z_BUCKETS}
 
         for i in range(first, last + 1):
             ctx = {"lp": lp, "i": i, "Xf": Xf, "valid": valid, "feat_names": feat_names}
@@ -360,49 +476,17 @@ def calibrate_moex_z(df, oil_df=None, sentiment_df=None, rate_df=None):
                 continue
             actual = 1 if lp[i + N] > lp[i] else 0
             hit = r["prediction"] == actual
-            az = abs(r.get("z", 0))
             # 归入对应档
-            for bk, threshold in z_buckets:
-                if az > threshold:
-                    bucket_hits[bk] += int(hit)
-                    bucket_total[bk] += 1
-                    break
+            bk = r.get("z_bucket") or _bucket_key(abs(r.get("z", 0)))
+            bucket_hits[bk] += int(hit)
+            bucket_total[bk] += 1
 
-        # 计算各档命中率
-        cal_n = {}
-        for bk, _ in z_buckets:
-            if bucket_total[bk] >= 20:
-                cal_n[bk] = round(bucket_hits[bk] / bucket_total[bk], 4)
-            else:
-                # 样本不足, 回退默认值
-                default_tbl = _DEFAULT_CAL.get(N, _DEFAULT_CAL[7])
-                cal_n[bk] = default_tbl.get(bk, 0.6)
-
-        # 相邻档若出现非单调(偏离更大的档命中率反而更低), 用两比例检验判断差异是否真实:
-        #   * 统计上不可区分(|z|<1.96, 双侧) -> 两档**样本量加权池化**。
-        #     池化是双向收敛(z05 下调、z10 上调), 且样本合并后方差更小, 比"把高档抬到低档的值"更可信。
-        #   * 差异确实可区分 -> **保留各自实测值**, 如实显示非单调, 不掩盖。
-        # 旧实现无条件 cal_n[cur] = cal_n[prev], 只会**单向上抬**; 实测 N=7 的 z10 因此
-        # 从 0.6452(n=124) 被抬到 0.7212(+7.6pp) —— 发布了数据不支持的数字。
-        monotonic_keys = ["z00", "z05", "z10", "z15"]
-        for _ in range(len(monotonic_keys)):   # 池化只会合并, 有界重复即可收敛
-            merged = False
-            for j in range(1, len(monotonic_keys)):
-                lo, hi = monotonic_keys[j - 1], monotonic_keys[j]
-                if cal_n[hi] >= cal_n[lo]:
-                    continue
-                n_lo, n_hi = bucket_total[lo], bucket_total[hi]
-                if n_lo < 20 or n_hi < 20:
-                    continue       # 样本不足者已回退默认值, 不参与池化
-                p_lo, p_hi = bucket_hits[lo] / n_lo, bucket_hits[hi] / n_hi
-                se = float(np.sqrt(p_lo * (1 - p_lo) / n_lo + p_hi * (1 - p_hi) / n_hi))
-                if se <= 0 or abs((p_hi - p_lo) / se) >= 1.96:
-                    continue       # 差异真实 -> 保留实测值
-                cal_n[lo] = cal_n[hi] = round(
-                    (bucket_hits[lo] + bucket_hits[hi]) / (n_lo + n_hi), 4)
-                merged = True
-            if not merged:
-                break
+        # 计算各档命中率(样本不足回退默认值), 再做统计检验池化
+        default_tbl = _DEFAULT_CAL.get(N, _DEFAULT_CAL[7])
+        cal_n = {bk: (round(bucket_hits[bk] / bucket_total[bk], 4)
+                      if bucket_total[bk] >= 20 else default_tbl.get(bk, 0.6))
+                 for bk, _ in _Z_BUCKETS}
+        _pool_to_monotonic(cal_n, bucket_hits, bucket_total)
         cal[N] = cal_n
 
         # 分档 cap = 该桶校准准确率

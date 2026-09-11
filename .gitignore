@@ -18,5 +18,8 @@ logs/
 tmp_*.txt
 serve_*.log
 
+# Release artifacts
+*.zip
+
 # Keep placeholders
 !data/.gitkeep

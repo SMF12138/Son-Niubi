@@ -33,7 +33,9 @@ class MeanRevDirectionPredictor:
         """设置数据驱动的 base_conf: {N: accuracy}。"""
         self._meanrev_conf = meanrev_conf
 
-    def predict_direction(self, ctx, N):
+    def predict_direction(self, ctx, N, conf_override=None):
+        """conf_override: {N: hit_rate} 回测时传入的"扩展窗样本外"命中率,
+        优先于实例自身的校准; None 时用 set_calibration 注入的全样本校准。"""
         lp = ctx["lp"]; i = ctx["i"]; Xf = ctx["Xf"]; valid = ctx["valid"]
         feat_names = ctx.get("feat_names", [])
         pos_of = np.searchsorted(valid, i)
@@ -65,11 +67,10 @@ class MeanRevDirectionPredictor:
 
         # 强信号: 直接采用均值回复方向, 高置信
         if strength >= 1.0:
-            # 数据驱动: 用校准的实测命中率, 缺失则回退到分档默认值
-            base_conf = self._meanrev_conf.get(N, _DEFAULT_MEANREV.get(N, 0.55))
-            base_conf = min(base_conf + strength * 0.01, 0.82)
-            if confirms >= 1:
-                base_conf = min(base_conf + 0.02, 0.82)
+            # 置信度 = 该信号的实测命中率(校准表), 不再叠加无实测依据的
+            # strength*0.01 / confirm+0.02 人为加分(旧实现可一路加到 0.82 上限)。
+            cal = conf_override if conf_override is not None else self._meanrev_conf
+            base_conf = cal.get(N, _DEFAULT_MEANREV.get(N, 0.55))
             conf = base_conf
             p_up = conf if score > 0 else 1 - conf
             return {"prediction": 1 if p_up > 0.5 else 0,

@@ -108,8 +108,18 @@ def _run_full_update():
     log.info("[slow] full update finished")
 
 
+_manual_done_date = None   # serve 启动时手动跑过全链路的日期(MSK), 当天慢层跳过
+
+
+def mark_slow_done_today():
+    """供 cli.serve 调用: 启动时已完成 fetch+回测+校准+预测, 当天不再重复慢层。"""
+    global _manual_done_date
+    _manual_done_date = datetime.now(MSK).date()
+    log.info("[scheduler] serve 启动已完成全链路, 当天慢层跳过: %s", _manual_done_date)
+
+
 def _loop():
-    last_slow_date = None
+    last_slow_date = _manual_done_date
     retry_count = 0
     last_fast_time = 0
     log.info("[scheduler] started: fast=%ds, slow=daily@%02d:%02d MSK",
