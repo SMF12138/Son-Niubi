@@ -118,8 +118,14 @@ function renderHero(d) {
   const up = dir.prediction === 1;
   const conf = dir.confidence == null ? 0.5 : dir.confidence;
   const acc = d.model_acc || {};
-  const cls = hasDir ? (up ? "dir-up" : "dir-down") : "dir-none";
-  const arrow = hasDir ? (up ? "▲ 涨" : "▼ 跌") : "— 无明确信号";
+  // 弱信号口径(单点真源): 把握度 < 55% 一律标弱(灰色"—"), 其余显示涨跌
+  const WEAK_CONF = 0.55;
+  const weak = hasDir && conf < WEAK_CONF;
+  const cls = !hasDir ? "dir-none" : weak ? "dir-weak"
+      : (up ? "dir-up" : "dir-down");
+  const arrow = !hasDir ? "— 无明确信号"
+      : weak ? "—"
+      : (up ? "▲ 涨" : "▼ 跌");
   const pct = hasDir ? (conf * 100).toFixed(1) : "—";
 
   let badgeLabel = "把握有限", bc = "badge-low";
@@ -129,7 +135,7 @@ function renderHero(d) {
     bc = "badge-" + uBadge.tier;
   }
 
-  const sigNames = { moex_dev: "MOEX市场偏离", meanrev_strong: "均值回复(强偏离)", mean_rev: "均值回复" };
+  const sigNames = { moex_dev: "MOEX市场偏离", meanrev_strong: "均值回复(强偏离)", mean_rev: "均值回复", long_reversion: "长期中枢回复" };
   const sig = sigNames[dir.signal] || dir.signal || "—";
   const cs = dir.confirms ? ` · ${dir.confirms}重确认` : "";
 
@@ -321,29 +327,50 @@ async function loadHealth() {
   const el = document.getElementById("healthContent");
   try {
     const h = await fetchJson("/api/signal_health");
-    const acc = h.rolling_acc || 0;
-    const pct = (acc * 100).toFixed(1);
-    let status, cls, desc;
-    if (h.status === "healthy") { status = "健康"; cls = "h-good"; desc = "模型运行良好，预测规律稳定有效。"; }
-    else if (h.status === "degraded") { status = "减弱"; cls = "h-warn"; desc = "预测有效性有所下降。"; }
-    else if (h.status === "alert") { status = "预警"; cls = "h-bad"; desc = "预测规律明显减弱。"; }
-    else { status = "数据不足"; cls = "h-warn"; desc = "样本不足，暂无法评估。"; }
-    const barW = Math.min(100, Math.max(0, acc * 100));
-    // 阈值来自服务端(monitor_signal 常量), 避免与后端脱节
-    const warnAt = (h.alert_threshold != null ? h.alert_threshold : 0.55) * 100;
-    const goodAt = (h.healthy_baseline != null ? h.healthy_baseline : 0.65) * 100;
-    el.innerHTML = `
+    // 兼容旧格式(单周期)和新格式(多周期 horizons)
+    const horizons = h.horizons || {};
+    const hs = Object.keys(horizons).length > 0
+      ? Object.entries(horizons).map(([hz, v]) => ({ horizon: Number(hz), ...v }))
+      : [{ horizon: 7, rolling_acc: h.rolling_acc || 0, status: h.status,
+           name: "MOEX价差", window_days: h.window_days || 90,
+           alert_threshold: h.alert_threshold, healthy_baseline: h.healthy_baseline,
+           n: 0 }];
+
+    const statusLabel = { healthy: "健康", degraded: "减弱", alert: "预警" };
+    const statusCls = { healthy: "h-good", degraded: "h-warn", alert: "h-bad" };
+
+    const rows = hs.map(v => {
+      const acc = v.rolling_acc || 0;
+      const pct = (acc * 100).toFixed(1);
+      const warnAt = (v.alert_threshold != null ? v.alert_threshold * 100 : 50).toFixed(0);
+      const goodAt = (v.healthy_baseline != null ? v.healthy_baseline * 100 : 60).toFixed(0);
+      const cls = statusCls[v.status] || "h-warn";
+      return `
       <div class="health-row">
-        <span class="health-badge ${cls}">${status}</span>
+        <span class="health-horizon">${v.horizon}日</span>
+        <span class="health-badge ${cls}">${statusLabel[v.status] || "?"}</span>
         <span class="health-pct">${pct}%</span>
-        <span class="health-meta">近${h.window_days || 90}天滚动命中率</span>
+        <span class="health-meta">近1年已兑现 · ${v.n || 0}次</span>
       </div>
       <div class="health-bar">
-        <div class="health-fill ${cls}" style="width:${barW}%"></div>
+        <div class="health-fill ${cls}" style="width:${Math.min(100, Math.max(0, acc*100))}%"></div>
         <div class="health-marker warn" style="left:${warnAt}%"></div>
         <div class="health-marker good" style="left:${goodAt}%"></div>
-      </div>
-      <div class="health-desc">${desc}</div>`;
+      </div>`;
+    }).join("");
+
+    // 总体提示
+    const overall = h.overall_status || (h.status === "healthy" ? "healthy" : h.status);
+    let overallDesc;
+    if (overall === "healthy") {
+      overallDesc = "全部周期信号健康，预测规律稳定。";
+    } else if (overall === "degraded") {
+      overallDesc = "部分周期信号有效性下降，相关预测请谨慎参考。";
+    } else {
+      overallDesc = "部分周期信号明显失效，建议忽略对应周期的方向预测。";
+    }
+
+    el.innerHTML = rows + `<div class="health-desc">${overallDesc}</div>`;
   } catch (e) {
     el.textContent = "";
     const div = document.createElement("div");

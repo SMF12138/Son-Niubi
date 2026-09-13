@@ -19,14 +19,29 @@ from app.data import store
 REQ = requests.Session()
 
 
+def _record_official_rate(rec: ET.Element) -> float:
+    """CBR 官方单一面值牌价 = Value / Nominal。
+
+    CBR 每条 Record 自带 <Nominal>(面值)字段,源头会在零散记录上把面值在
+    10/1 之间翻转(2014-12 起直至 2023-01),若只读 Value 会产生 10 倍或
+    十分之一的伪牌价(±85%~+893% 假跳变)。Nominal=1 时本除法为恒等,
+    对 USD 等无翻转币种无副作用。此处只做官方口径归一化,不做任何异常值
+    裁剪、平滑或人工修正。
+    """
+    value = float(rec.findtext("Value").replace(",", "."))
+    nominal = float(rec.findtext("Nominal").replace(",", "."))
+    if nominal <= 0:
+        raise ValueError(f"CBR Record Nominal 非法: {nominal!r}")
+    return value / nominal
+
+
 def _parse_cbr_dynamic(content: bytes) -> list[tuple[str, float]]:
-    """解析 CBR XML_dynamic 响应 -> [(iso_date, value)]。"""
+    """解析 CBR XML_dynamic 响应 -> [(iso_date, 单一面值牌价)]。"""
     root = ET.fromstring(content)  # XML 头声明 windows-1251,ET 按字节自动处理
     out: list[tuple[str, float]] = []
     for rec in root.findall("Record"):
         d = dt.datetime.strptime(rec.get("Date"), "%d.%m.%Y").date().isoformat()
-        v = float(rec.findtext("Value").replace(",", "."))
-        out.append((d, v))
+        out.append((d, _record_official_rate(rec)))
     return out
 
 

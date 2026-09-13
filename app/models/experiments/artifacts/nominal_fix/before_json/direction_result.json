@@ -1,0 +1,67 @@
+{
+ "meta": {
+  "as_of": "2026-09-12T00:00:00",
+  "rows": 4125,
+  "model": "MoexDirectionPredictor",
+  "calibration": "expanding_window_oos",
+  "confident_threshold": 0.65
+ },
+ "horizons": {
+  "7": {
+   "N": 7,
+   "windows": 3200,
+   "accuracy": 0.5797,
+   "confident_accuracy": 0.7005,
+   "confident_windows": 424,
+   "confident_ratio": 0.1325,
+   "confident_threshold": 0.65,
+   "baseline_always_majority": 0.5181,
+   "moex_accuracy": 0.6745,
+   "moex_windows": 983,
+   "moex_confident_accuracy": 0.7005,
+   "moex_confident_windows": 424
+  },
+  "30": {
+   "N": 30,
+   "windows": 3177,
+   "accuracy": 0.5364,
+   "confident_accuracy": 0.6701,
+   "confident_windows": 291,
+   "confident_ratio": 0.0916,
+   "confident_threshold": 0.65,
+   "baseline_always_majority": 0.5087,
+   "moex_accuracy": 0.6175,
+   "moex_windows": 881,
+   "moex_confident_accuracy": 0.6701,
+   "moex_confident_windows": 291
+  },
+  "60": {
+   "N": 60,
+   "windows": 3147,
+   "accuracy": 0.5132,
+   "confident_accuracy": 0.6069,
+   "confident_windows": 407,
+   "confident_ratio": 0.1293,
+   "confident_threshold": 0.65,
+   "baseline_always_majority": 0.5014,
+   "moex_accuracy": 0.6172,
+   "moex_windows": 862,
+   "moex_confident_accuracy": 0.6507,
+   "moex_confident_windows": 335
+  },
+  "90": {
+   "N": 90,
+   "windows": 3117,
+   "accuracy": 0.591,
+   "confident_accuracy": 0.7324,
+   "confident_windows": 553,
+   "confident_ratio": 0.1774,
+   "confident_threshold": 0.65,
+   "baseline_always_majority": 0.5249,
+   "moex_accuracy": 0.5889,
+   "moex_windows": 900,
+   "moex_confident_accuracy": 0.6895,
+   "moex_confident_windows": 219
+  }
+ }
+}

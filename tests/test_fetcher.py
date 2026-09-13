@@ -32,6 +32,22 @@ class TestCbrParse(unittest.TestCase):
              ("2026-09-09", 12.8842)],
         )
 
+    def test_nominal_normalization(self):
+        """回归:CBR 零散记录 Nominal=10 时官方牌价=Value/Nominal,禁止把面值翻转当跳变。"""
+        xml = (
+            '<?xml version="1.0" encoding="windows-1251"?>'
+            '<ValCurs ID="R01375">'
+            '<Record Date="17.12.2014"><Nominal>1</Nominal><Value>9,9800</Value></Record>'
+            '<Record Date="18.12.2014"><Nominal>10</Nominal><Value>99,1200</Value></Record>'
+            '<Record Date="19.12.2014"><Nominal>1</Nominal><Value>10,0500</Value></Record>'
+            "</ValCurs>"
+        ).encode("ascii")
+        out = _parse_cbr_dynamic(xml)
+        self.assertEqual(
+            out,
+            [("2014-12-17", 9.98), ("2014-12-18", 9.912), ("2014-12-19", 10.05)],
+        )
+
 
 class TestStore(unittest.TestCase):
     def setUp(self):

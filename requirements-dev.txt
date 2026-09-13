@@ -1,0 +1,4 @@
+# 实验依赖(Phase 2 模型检验专用, 不进生产 requirements.txt)
+# 安装: pip install -r requirements-dev.txt
+scikit-learn==1.7.2
+xgboost==3.2.0

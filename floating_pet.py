@@ -15,8 +15,14 @@
 import datetime as dt
 import json
 import math
+import platform
+import subprocess
+import sys
 import tkinter as tk
 from pathlib import Path
+
+IS_MAC = sys.platform == "darwin"
+IS_WIN = sys.platform == "win32"
 
 ROOT = Path(__file__).resolve().parent
 FORECAST_FILE = ROOT / "data" / "forecast_7.json"
@@ -36,7 +42,7 @@ LIVE_FILE = ROOT / "data" / "moex_live.json"
 LIVE_STALE_SEC = 600        # 超过 10 分钟没更新视为失效, 回退官方牌价
 
 # 透明键色
-TRANSPARENT_KEY = "#FF00FE"
+TRANSPARENT_KEY = "#FF00FE"  # 仅 Windows; macOS 不需要
 
 BG = "#1E222A"              # 卡片底
 PANEL = "#14171D"           # 角色面板底
@@ -50,6 +56,7 @@ BTN_HOVER = "#3B4757"
 BTN_CLOSE_HOVER = "#E5484D"
 UP_COLOR = "#FF6B5E"
 DOWN_COLOR = "#35D0A0"
+WEAK_COLOR = "#8C94A0"   # 实验性弱倾向专用: 中性灰, 不与涨跌红绿混淆
 
 IMG_TARGET_H = 104
 IMG_TARGET_W = 100
@@ -284,14 +291,17 @@ def _clamp_pos(root, x, y, w, h):
 HERO_BG = {
     1: _blend_over(BG, UP_COLOR, HERO_TINT),
     0: _blend_over(BG, DOWN_COLOR, HERO_TINT),
+    "weak": _blend_over(BG, WEAK_COLOR, HERO_TINT),
 }
 
 # 字体: 运行时从系统已装字体里挑首选。优先用真实字重变体(如 Medium),
 # 取不到才退回 Tk 合成粗体 —— 合成粗体在小字号下发糊。
 FONT_REG_PREFS = ["HarmonyOS Sans SC", "Noto Sans SC",
+                  "PingFang SC", "Hiragino Sans GB",
                   "Microsoft YaHei UI", "Microsoft YaHei"]
-FONT_STRONG_PREFS = ["HarmonyOS Sans SC Medium", "Noto Sans SC Medium"]
-FONT_FALLBACK = "Microsoft YaHei"
+FONT_STRONG_PREFS = ["HarmonyOS Sans SC Medium", "Noto Sans SC Medium",
+                     "PingFang SC Medium"]
+FONT_FALLBACK = "PingFang SC" if IS_MAC else "Microsoft YaHei"
 
 
 def resolve_fonts():
@@ -322,8 +332,17 @@ class FloatingPet:
         self.font, self.font_strong, self._strong_real = resolve_fonts()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.configure(bg=TRANSPARENT_KEY)
-        self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
+
+        # macOS: 用 wm_attributes("-transparent", True) 实现透明
+        # Windows: 用 -transparentcolor 指定透明色
+        if IS_MAC:
+            self.root.wm_attributes("-transparent", True)
+            self.root.configure(bg="systemTransparent")
+            self._canvas_bg = "systemTransparent"
+        else:
+            self.root.configure(bg=TRANSPARENT_KEY)
+            self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
+            self._canvas_bg = TRANSPARENT_KEY
 
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -339,7 +358,7 @@ class FloatingPet:
         self.root.geometry(f"{self.W}x{self.H}+{pos[0]}+{pos[1]}")
 
         self.canvas = tk.Canvas(self.root, width=self.W, height=self.H,
-                                bg=TRANSPARENT_KEY, highlightthickness=0)
+                                bg=self._canvas_bg, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
         self.show_form1 = False
@@ -437,15 +456,19 @@ class FloatingPet:
 
         bid = self._hit_button(e.x, e.y)
         if bid == "close":
-            import subprocess
             try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-Command",
-                     "Get-CimInstance Win32_Process | Where-Object { "
-                     "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
-                     "-and $_.CommandLine -match 'app.cli serve' } "
-                     "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                    timeout=5, capture_output=True)
+                if IS_MAC or not IS_WIN:
+                    subprocess.run(
+                        ["pkill", "-f", "app.cli serve"],
+                        timeout=5, capture_output=True)
+                else:
+                    subprocess.run(
+                        ["powershell", "-NoProfile", "-Command",
+                         "Get-CimInstance Win32_Process | Where-Object { "
+                         "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                         "-and $_.CommandLine -match 'app.cli serve' } "
+                         "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                        timeout=5, capture_output=True)
             except Exception:
                 pass                # 杀服务失败也必须把宠物自己关掉
             finally:
@@ -534,10 +557,20 @@ class FloatingPet:
         voice = VOICE1 if self.show_form1 else VOICE2
         if not voice.exists():
             return
-        import winsound
         try:
-            winsound.PlaySound(
-                str(voice), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            if IS_MAC:
+                subprocess.Popen(["afplay", str(voice)],
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL)
+            elif IS_WIN:
+                import winsound
+                winsound.PlaySound(
+                    str(voice), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            else:
+                # Linux: 尝试 aplay
+                subprocess.Popen(["aplay", "-q", str(voice)],
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL)
         except Exception:
             pass
 
@@ -636,10 +669,40 @@ class FloatingPet:
         return img
 
     def _draw_ball(self):
-        """绘制最小化悬浮球: 直接贴预先光栅化好的抗锯齿图。"""
+        """绘制最小化悬浮球。Windows用光栅化贴图, macOS用Canvas矢量绘制。"""
         pred = (self.data.get("direction") or {}).get("prediction", 0)
+        _conf = (self.data.get("direction") or {}).get("confidence")
+        _conf = _conf if isinstance(_conf, (int, float)) else 0.5
+        weak = _conf < 0.55
         c = self.canvas
-        c.create_image(0, 0, image=self._ball_image(pred), anchor="nw")
+        dot_color = WEAK_COLOR if weak else (UP_COLOR if pred == 1 else DOWN_COLOR)
+
+        if IS_MAC:
+            # macOS: Canvas矢量绘制(不依赖transparentcolor)
+            c.delete("all")
+            cx, cy, r = W_MIN // 2, W_MIN // 2, 22
+            # 外圈深色
+            c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                          fill="#14171D", outline="")
+            # 金色环
+            c.create_oval(cx - r + 1, cy - r + 1, cx + r - 1, cy + r - 1,
+                          outline="#D4A843", width=2)
+            # 内部渐变底盘
+            c.create_oval(cx - r + 3, cy - r + 3, cx + r - 3, cy + r - 3,
+                          fill="#3A4250", outline="")
+            # 眼睛
+            c.create_oval(cx - 6, cy - 4, cx + 2, cy + 4,
+                          fill="#2D8B57", outline="#1A1210", width=1)
+            c.create_oval(cx + 2, cy - 4, cx + 10, cy + 4,
+                          fill="#2D8B57", outline="#1A1210", width=1)
+            c.create_oval(cx - 3, cy - 1, cx - 1, cy + 1, fill="white", outline="")
+            c.create_oval(cx + 5, cy - 1, cx + 7, cy + 1, fill="white", outline="")
+            # 涨跌指示点
+            c.create_oval(cx + 8, cy - 14, cx + 16, cy - 6,
+                          fill=dot_color, outline="")
+        else:
+            # Windows: 光栅化抗锯齿贴图
+            c.create_image(0, 0, image=self._ball_image(pred), anchor="nw")
 
     def _f(self, size, strong=False):
         """构造 Tk 字体规格。强调文字优先用真实字重, 取不到才加合成 bold。"""
@@ -744,6 +807,8 @@ class FloatingPet:
         # 下面三个字段一律类型收敛: forecast JSON 一旦被写坏, 桌宠无控制台, 崩了没人知道
         conf = d.get("confidence")
         conf = conf if isinstance(conf, (int, float)) else 0.5
+        # 弱信号口径(与网页端一致): 把握度 < 55% 一律标弱, 其余显示涨跌
+        weak = conf < 0.55
         # 显示价: 优先 MOEX 实时市场价(第二行配时间 HH:MM), 取不到回退 forecast 里的
         # 官方牌价(第二行配日期 YYYY-MM-DD)。标签文字不变, 口径差异靠这一行格式区分。
         live_price = self.live.get("price")
@@ -759,6 +824,10 @@ class FloatingPet:
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
         arrow = "▲" if pred == 1 else "▼"
+        if weak:
+            color = WEAK_COLOR
+            word = "弱"
+            arrow = "—"
         pct = f"{conf * 100:.1f}%"
 
         # 标题行: 币种(与右上按钮同排; 文案与字号按实测留出按钮左缘 233 的空间)
@@ -772,9 +841,10 @@ class FloatingPet:
             self._draw_horizon_bar()
             return
 
-        # hero: 方向色淡染底色
+        # hero: 方向色淡染底色(弱信号用灰)
         self._round_rect(c, HERO_X0, HERO_Y0, HERO_X1, HERO_Y1, HERO_R,
-                         fill=HERO_BG[pred], outline="")
+                         fill=HERO_BG["weak"] if weak
+                         else HERO_BG[pred], outline="")
 
         # 方向词 + 概率 并排一行, 整行在 hero 内垂直居中
         c.create_text(DATA_X0, HERO_ROW_Y, anchor="w", text=f"{arrow} {word}",

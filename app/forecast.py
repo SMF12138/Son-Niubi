@@ -13,6 +13,12 @@ from app.data import store
 from app.data.calendar import future_trading_dates
 from app.data.features import build_features
 
+# 长周期带宽校准: ±1σ 带实测历史覆盖率仅 63~67%(肥尾+波动聚集, n≈3900),
+# 乘以下列系数后达到名义 80% 覆盖(全历史 |ΔP|/(σ√k) 经验 80% 分位)。
+# 波动率带宽比方向信号平稳得多, 校准跨期稳定; 7 日卡保持 ±1σ 语义不动。
+BAND_COVERAGE = 0.80
+BAND_COVERAGE_MULT = {30: 1.51, 60: 1.81, 90: 2.02}
+
 
 def build_projection(cur_rate, direction, dates, daily_vol=None):
     """基于方向结论生成投影路径(中位 + 不确定性带)。
@@ -27,8 +33,31 @@ def build_projection(cur_rate, direction, dates, daily_vol=None):
     注意: 中位线的幅度(0.0161*sig_w)只是"方向示意", 非点估计;
     真正有数据依据的是带宽随已实现波动率的缩放。
     """
-    if not direction or direction.get("prediction") not in (0, 1):
-        return []
+    # 弱信号口径(与前端一致): 把握度 < 55% 中位线不偏移, 只给对称波动区间
+    conf = direction.get("confidence") if direction else None
+    weak = isinstance(conf, (int, float)) and conf < 0.55
+    if (not direction or direction.get("prediction") not in (0, 1) or weak):
+        if not direction or (not direction.get("neutral") and not weak):
+            return []
+        n = len(dates)
+        if n == 0:
+            return []
+        base = np.log(cur_rate)
+        mult = BAND_COVERAGE_MULT.get(n, 1.0)
+        forecast = []
+        for k, dt in enumerate(dates):
+            frac = (k + 1) / n
+            if daily_vol and daily_vol > 0:
+                halfband = daily_vol * math.sqrt(k + 1) * mult
+            else:
+                halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
+            p50 = cur_rate
+            lo = float(np.exp(base - halfband))
+            hi = float(np.exp(base + halfband))
+            dt_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+            forecast.append({"date": dt_str, "rate": round(p50, 4),
+                             "low": round(lo, 4), "high": round(hi, 4)})
+        return forecast
     pred = direction["prediction"]
     conf = direction.get("confidence", 0.55)
     n = len(dates)
@@ -41,13 +70,14 @@ def build_projection(cur_rate, direction, dates, daily_vol=None):
     med = sign_dir * 0.0161 * sig_w
 
     forecast = []
+    mult = BAND_COVERAGE_MULT.get(n, 1.0)
     for k, dt in enumerate(dates):
         frac = (k + 1) / n
         path = frac ** 0.7
         p50 = float(np.exp(base + med * path))
-        # 有 daily_vol: 1*sigma*sqrt(k) 的波动扩散; 兜底: 旧的经验喇叭口
+        # 有 daily_vol: σ*sqrt(k)*校准系数 的波动扩散; 兜底: 旧的经验喇叭口
         if daily_vol and daily_vol > 0:
-            halfband = daily_vol * math.sqrt(k + 1)
+            halfband = daily_vol * math.sqrt(k + 1) * mult
         else:
             halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
         lo = float(np.exp(base + med * path - halfband))
@@ -73,6 +103,7 @@ def recent_daily_vol(lp, window=60):
 def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
     """生成当前时点预测并写入 forecast_*.json。"""
     from app.models.moex_dir import MoexDirectionPredictor
+    from app.models.longhorizon import predict_longhorizon, load_longhorizon_result
     from app.data.moex_rates import load_moex, load_moex_hl
 
     config.DATA_DIR.mkdir(exist_ok=True)
@@ -84,14 +115,20 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
     ctx = {"lp": lp, "i": len(lp) - 1, "Xf": Xf, "valid": valid, "feat_names": feat_names}
     predictor = MoexDirectionPredictor()
     _dates = [d.strftime("%Y-%m-%d") for d in df.index]
-    predictor.attach_moex(_dates, lp, load_moex(), hl_map=load_moex_hl())
+    moex_map = load_moex()
+    predictor.attach_moex(_dates, lp, moex_map, hl_map=load_moex_hl())
+    lh_result = load_longhorizon_result()   # 缺失时 30/60/90 全部安全降级为中性
 
     cur_rate = float(np.exp(lp[-1]))
     base_date = df.index[-1].date()
     daily_vol = recent_daily_vol(lp)
 
     for N in config.N_HORIZONS:
-        dr = predictor.predict_direction(ctx, N)
+        if N == 7:
+            dr = predictor.predict_direction(ctx, N)
+        else:
+            dr = predict_longhorizon(lp, _dates, moex_map, N, result=lh_result,
+                                     oil_df=oil_df)
         fdates = future_trading_dates(base_date, N)
 
         forecast = build_projection(cur_rate, dr, fdates, daily_vol=daily_vol)

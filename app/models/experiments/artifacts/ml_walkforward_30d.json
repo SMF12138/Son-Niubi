@@ -1,0 +1,156 @@
+{
+ "meta": {
+  "generated": "2026-09-13T17:21:04",
+  "contract_version": "2026-09-13-v1",
+  "horizon_days": 30,
+  "features": [
+   "ret1",
+   "mom5",
+   "mom20",
+   "vol5",
+   "vol20",
+   "skew20",
+   "pos60",
+   "level_z60",
+   "rsi14",
+   "dow",
+   "ma20_dev",
+   "ma60_dev",
+   "slope20",
+   "usd_ret1",
+   "usd_ret5",
+   "usd_ret20",
+   "usd_vol20",
+   "cusd_mom5",
+   "cusd_mom20",
+   "cny_usd_corr60",
+   "cny_usd_beta60",
+   "brent_ret1",
+   "brent_ret5",
+   "brent_ret20",
+   "brent_vol20",
+   "brent_vol_ratio",
+   "cny_brent_corr60",
+   "sentiment_coverage",
+   "sentiment",
+   "sentiment_7d",
+   "sentiment_30d",
+   "sentiment_trend",
+   "key_rate",
+   "rate_change",
+   "rate_change_60d",
+   "rev"
+  ],
+  "models": [
+   "LR",
+   "RF",
+   "XGB"
+  ],
+  "walk_forward": "annual expanding window: train on year<yr, predict year=yr",
+  "preprocessing": "median impute + standardize (fit on train only)",
+  "hyperparams": "fixed, no tuning",
+  "target": "binary R30>0"
+ },
+ "results": {
+  "LR": {
+   "overall": {
+    "n": 3597,
+    "hit": 0.519,
+    "auc": 0.5195,
+    "brier": 0.3283
+   },
+   "eras": {
+    "2010-2015": {
+     "n": 989,
+     "hit": 0.5592,
+     "auc": 0.5685,
+     "brier": 0.3226
+    },
+    "2016-2020": {
+     "n": 1231,
+     "hit": 0.5134,
+     "auc": 0.5088,
+     "brier": 0.3117
+    },
+    "2021-今": {
+     "n": 1377,
+     "hit": 0.4953,
+     "auc": 0.5081,
+     "brier": 0.3472
+    }
+   }
+  },
+  "RF": {
+   "overall": {
+    "n": 3597,
+    "hit": 0.5249,
+    "auc": 0.5066,
+    "brier": 0.2642
+   },
+   "eras": {
+    "2010-2015": {
+     "n": 989,
+     "hit": 0.4803,
+     "auc": 0.425,
+     "brier": 0.2818
+    },
+    "2016-2020": {
+     "n": 1231,
+     "hit": 0.511,
+     "auc": 0.5011,
+     "brier": 0.2619
+    },
+    "2021-今": {
+     "n": 1377,
+     "hit": 0.5694,
+     "auc": 0.5566,
+     "brier": 0.2536
+    }
+   }
+  },
+  "XGB": {
+   "overall": {
+    "n": 3597,
+    "hit": 0.5124,
+    "auc": 0.5072,
+    "brier": 0.3327
+   },
+   "eras": {
+    "2010-2015": {
+     "n": 989,
+     "hit": 0.5056,
+     "auc": 0.4602,
+     "brier": 0.3748
+    },
+    "2016-2020": {
+     "n": 1231,
+     "hit": 0.4622,
+     "auc": 0.482,
+     "brier": 0.3569
+    },
+    "2021-今": {
+     "n": 1377,
+     "hit": 0.5621,
+     "auc": 0.5656,
+     "brier": 0.2807
+    }
+   }
+  },
+  "baseline_majority": {
+   "overall": {
+    "n": 4095,
+    "hit": 0.5201
+   },
+   "eras": {}
+  },
+  "baseline_rev_sign": {
+   "overall": {
+    "n": 3976,
+    "hit": 0.503,
+    "auc": 0.521,
+    "brier": 0.3544
+   },
+   "eras": {}
+  }
+ }
+}

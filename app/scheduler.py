@@ -83,10 +83,14 @@ def _run_full_update():
 
     try:
         from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
+        from app.models.longhorizon import run_longhorizon_backtest
+        from app.data.moex_rates import load_moex
         from app.cli import _load_all
         df, oil_df, sent_df, rate_df = _load_all()
         dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
         store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
+        store.write_json_atomic(config.LONGHORIZON_JSON,
+                                run_longhorizon_backtest(df, load_moex(), oil_df=oil_df))
         log.info("[slow] backtest done")
         try:
             calibrate_moex_z(df, oil_df, sent_df, rate_df)

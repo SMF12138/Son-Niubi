@@ -258,6 +258,10 @@ body {
   background: var(--down-bg);
   border: 1px solid var(--down-border);
 }
+.hero-main.dir-weak {
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.15);
+}
 .hero-horizon {
   font-size: 12px;
   font-weight: 600;
@@ -274,6 +278,7 @@ body {
 }
 .dir-up .hero-direction { color: var(--up); }
 .dir-down .hero-direction { color: var(--down); }
+.dir-weak .hero-direction { color: var(--text-mute); }
 
 .hero-confidence {
   display: flex;
@@ -300,6 +305,8 @@ body {
 .badge-high { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
 .badge-mid  { background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold-border); }
 .badge-low  { background: var(--up-bg); color: var(--up); border: 1px solid var(--up-border); }
+.badge-neutral { background: #eef0f3; color: #6b7280; border: 1px solid #d8dce2; }
+.badge-weak { background: rgba(128, 128, 128, 0.06); color: var(--text-mute); border: 1px dashed rgba(128, 128, 128, 0.25); }
 
 .hero-signal {
   margin-top: 10px;
@@ -418,7 +425,8 @@ body {
 
 /* ---- Health Card ---- */
 .health-body { display: flex; flex-direction: column; gap: 14px; }
-.health-row { display: flex; align-items: center; gap: 16px; }
+.health-row { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+.health-horizon { font-weight: 600; color: var(--text); min-width: 36px; }
 .health-badge {
   padding: 5px 14px;
   border-radius: 6px;
@@ -478,6 +486,9 @@ body {
 .uncert-badge.u-high { background: rgba(46, 125, 82, 0.08); color: var(--down); }
 .uncert-badge.u-mid  { background: var(--gold-soft); color: var(--gold); }
 .uncert-badge.u-low  { background: rgba(196, 30, 58, 0.08); color: var(--up); }
+.uncert-badge.u-neutral { background: #eef0f3; color: #6b7280; }
+.uncert-badge.u-weak { background: rgba(128, 128, 128, 0.06); color: var(--text-mute); border: 1px dashed rgba(128, 128, 128, 0.25); }
+.dir-weak { color: var(--text-mute); opacity: 1; }
 .uncert-title { font-size: 13px; color: var(--text-dim); flex: 1; }
 .uncert-chevron {
   font-size: 16px; color: var(--text-mute);

@@ -43,6 +43,8 @@ def cmd_fetch(_):
 
 def cmd_backtest(_):
     from app.models.moex_dir import run_direction_backtest
+    from app.models.longhorizon import run_longhorizon_backtest
+    from app.data.moex_rates import load_moex
     df, oil_df, sent_df, rate_df = _load_all()
     t0 = time.time()
     dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
@@ -53,6 +55,14 @@ def cmd_backtest(_):
         ca = h.get("confident_accuracy", 0); cn = h.get("confident_windows", 0)
         print(f"N={N}: 全部{h['accuracy']*100:.1f}% "
               f"高置信>{config.CONFIDENT_THRESHOLD*100:.0f}% {ca*100:.1f}%({cn}/{h['windows']})")
+    lh = run_longhorizon_backtest(df, load_moex(), oil_df=oil_df)
+    store.write_json_atomic(config.LONGHORIZON_JSON, lh)
+    for N in (30, 60, 90):
+        h = lh["horizons"][str(N)]
+        hit = "—" if h["oos_hit"] is None else f"{h['oos_hit']*100:.1f}%"
+        verdict = "✅过70%门槛" if h["passed_70pct_gate"] else "未过门槛(中性)"
+        print(f"长周期 N={N}: OOS命中{hit} 发声{h['oos_emitted']}"
+              f"/{h['eligible_days']}(覆盖{h['coverage']*100:.0f}%) -> {verdict}")
     print(f"回测耗时 {time.time()-t0:.0f}s")
     return 0
 
@@ -65,6 +75,9 @@ def cmd_forecast(_):
         f = fc.load_forecast(N)
         if not f: continue
         dr = f.get("direction", {})
+        if dr.get("prediction") not in (0, 1):
+            print(f"N={N}: 方向=方向不明(中性,只给区间)")
+            continue
         arrow = "↑涨" if dr.get("prediction") == 1 else "↓跌"
         print(f"N={N}: 方向={arrow} 置信度{dr.get('confidence', 0)*100:.0f}%")
     return 0
@@ -103,9 +116,13 @@ def cmd_serve(args):
             or not config.FORECAST_JSONS.get(7).exists()):
         try:
             from app.models.moex_dir import run_direction_backtest, calibrate_moex_z
+            from app.models.longhorizon import run_longhorizon_backtest
+            from app.data.moex_rates import load_moex
             df, oil_df, sent_df, rate_df = _load_all()
             dir_rep = run_direction_backtest(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
             store.write_json_atomic(config.DIRECTION_JSON, dir_rep)
+            store.write_json_atomic(config.LONGHORIZON_JSON,
+                                    run_longhorizon_backtest(df, load_moex(), oil_df=oil_df))
             calibrate_moex_z(df, oil_df, sent_df, rate_df)
             from app import forecast as fc
             fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
