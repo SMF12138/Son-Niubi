@@ -294,10 +294,10 @@ class MoexDirectionPredictor:
             bucket_key = _bucket_key(az)
             conf = tbl[bucket_key]
             cap = cap_lookup.get(bucket_key, 0.7)
-            if confirms >= 3:
-                conf = min(conf + 0.02, cap)
-            elif confirms >= 2:
-                conf = min(conf + 0.01, cap)
+            # 六确认只作展示字段(confirms), 不参与把握度: 2026-09 条件命中率实测,
+            # "确认≥2"相对"0-1"零增量(60.1% vs 59.7%), "≥3"在 z00 桶有效(63.4% vs
+            # 50.9%)但在 z05 桶反向(69.3% vs 92.3%, 小样本), 增量不稳定且接线等于
+            # 新一轮同数据挖规则, 故把握度严格等于该 |z| 桶的(动态)校准命中率。
             conf = max(0.5, min(conf, cap))
             pu = conf if pred == 1 else 1 - conf
             return {"prediction": pred, "confidence": round(conf, 3),

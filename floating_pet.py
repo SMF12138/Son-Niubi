@@ -456,23 +456,38 @@ class FloatingPet:
 
         bid = self._hit_button(e.x, e.y)
         if bid == "close":
+            kill_failed = False
             try:
                 if IS_MAC or not IS_WIN:
-                    subprocess.run(
+                    r = subprocess.run(
                         ["pkill", "-f", "app.cli serve"],
                         timeout=5, capture_output=True)
+                    # pkill: 0=已杀, 1=本就无匹配进程(不算失败), 其余才是失败
+                    kill_failed = r.returncode not in (0, 1)
                 else:
-                    subprocess.run(
+                    r = subprocess.run(
                         ["powershell", "-NoProfile", "-Command",
                          "Get-CimInstance Win32_Process | Where-Object { "
                          "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
                          "-and $_.CommandLine -match 'app.cli serve' } "
                          "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                        timeout=5, capture_output=True)
+                        timeout=5, capture_output=True, text=True)
+                    # 无匹配时 PowerShell 管道返回 0; 非 0 才是真失败
+                    kill_failed = r.returncode != 0
             except Exception:
-                pass                # 杀服务失败也必须把宠物自己关掉
-            finally:
-                self.root.destroy()
+                kill_failed = True   # 超时/无 powershell 等
+            if kill_failed:
+                # 不再静默吞掉: 明确告知用户后台可能残留, 给出手动处理路径
+                try:
+                    from tkinter import messagebox
+                    messagebox.showwarning(
+                        "服务未能自动关闭",
+                        "后台汇率服务(app.cli serve)未能自动结束,\n"
+                        "请在任务管理器中手动关闭 python.exe / pythonw.exe,\n"
+                        "否则它会继续每小时更新数据。")
+                except Exception:
+                    pass
+            self.root.destroy()
             return
         if bid == "min":
             self._minimize()

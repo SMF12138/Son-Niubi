@@ -123,12 +123,14 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
     base_date = df.index[-1].date()
     daily_vol = recent_daily_vol(lp)
 
+    drs = {}
     for N in config.N_HORIZONS:
         if N == 7:
             dr = predictor.predict_direction(ctx, N)
         else:
             dr = predict_longhorizon(lp, _dates, moex_map, N, result=lh_result,
                                      oil_df=oil_df)
+        drs[N] = dr
         fdates = future_trading_dates(base_date, N)
 
         forecast = build_projection(cur_rate, dr, fdates, daily_vol=daily_vol)
@@ -145,6 +147,15 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
         path = config.FORECAST_JSONS.get(N)
         if path:
             store.write_json_atomic(path, fc)
+
+    # 预测永久留档 + 影子策略 + 到期结算(快层每60秒重跑, 内部 UNIQUE 幂等)。
+    # 留档故障不得影响看板: 记日志即可。
+    try:
+        from app.models.prediction_ledger import record_forecast_day
+        record_forecast_day(df, drs, oil_df=oil_df)
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("prediction ledger 记录失败: %s", e)
 
 
 def load_forecast(N: int) -> dict | None:

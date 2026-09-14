@@ -21,36 +21,27 @@ UPDATE_HOUR = 9
 UPDATE_MINUTE = 0
 FAST_INTERVAL = 60     # 快层间隔(秒), 可改为更小值
 SLOW_INTERVAL = 60     # 慢层检查间隔(秒)
-MAX_RETRIES = 3
-NEWS_COOLDOWN = 3600   # 新闻抓取冷却(秒), 避免快层频繁打 Google RSS
-_last_news_fetch = 0   # 上次新闻抓取时间戳
+SLOW_RETRY_INTERVAL = 1800  # 慢层失败后的重试节流(秒): 不放弃当天, 每30分钟再试
+MAX_RETRIES = 3        # 仅日志分级用, 不再"重试3次放弃当天"
 
 
 def _fetch_data():
-    """快层: 只拉数据, 不做回测/校准。新闻抓取有冷却期, 避免频繁打 Google RSS。"""
-    global _last_news_fetch
+    """快层: 只拉数据, 不做回测/校准。"""
     from app.data import fetcher
-    from app.data.news import fetch_news
     from app.data.cbr_rates import fetch_key_rate
     from app.data.moex_rates import fetch_moex_onshore
     from app.data.moex_live import write_live
 
-    now = time.time()
-    sources = [("CBR", lambda: fetcher.sync()),
-               ("oil", fetcher.fetch_oil_prices),
-               ("key_rate", fetch_key_rate),
-               ("moex", fetch_moex_onshore),
-               ("moex_live", write_live)]
-    # 新闻: 仅冷却期过后才抓取
-    if now - _last_news_fetch >= NEWS_COOLDOWN:
-        sources.append(("news", fetch_news))
-    for name, fn in sources:
+    # 新闻情绪已于 2026-09 下线(对预测贡献逐位为 0), 不再自动抓取 Google RSS。
+    for name, fn in [("CBR", lambda: fetcher.sync()),
+                     ("oil", fetcher.fetch_oil_prices),
+                     ("key_rate", fetch_key_rate),
+                     ("moex", fetch_moex_onshore),
+                     ("moex_live", write_live)]:
         try:
             fn()
         except Exception as e:
             log.warning("[fast] %s failed: %s", name, e)
-    if now - _last_news_fetch >= NEWS_COOLDOWN:
-        _last_news_fetch = now
 
 
 def _run_forecast_only():
@@ -65,15 +56,14 @@ def _run_forecast_only():
 def _run_full_update():
     """慢层: 完整链路 fetch + backtest + calibrate + forecast。"""
     from app.data import fetcher
-    from app.data.news import fetch_news
     from app.data.cbr_rates import fetch_key_rate
     from app.data.moex_rates import fetch_moex_onshore
 
     log.info("[slow] full update start")
 
+    # 新闻情绪已下线(贡献为 0), 慢层不再抓取。
     for name, fn in [("CBR", lambda: fetcher.sync()),
                      ("oil", fetcher.fetch_oil_prices),
-                     ("news", fetch_news),
                      ("key_rate", fetch_key_rate),
                      ("moex", fetch_moex_onshore)]:
         try:
@@ -126,6 +116,7 @@ def _loop():
     last_slow_date = _manual_done_date
     retry_count = 0
     last_fast_time = 0
+    last_slow_attempt = 0.0   # 上次慢层尝试(含失败), 用于失败时节流重试
     log.info("[scheduler] started: fast=%ds, slow=daily@%02d:%02d MSK",
              FAST_INTERVAL, UPDATE_HOUR, UPDATE_MINUTE)
     while True:
@@ -145,21 +136,25 @@ def _loop():
             # 慢层: 每天 09:00 MSK 及之后跑完整回测+校准。
             # 用 >= 而不是 == 是为了「补跑」: 机器在 09:00 那一小时没开着时, 当天稍后启动或运行
             # 仍会补上; 否则会一路跳过到次日, 校准文件超过 48h 后被静默回退到内置默认表。
+            # 失败不放弃当天: 每 SLOW_RETRY_INTERVAL 秒重试, 直到成功 —— 保证校准不过期。
             if ((now_dt.hour, now_dt.minute) >= (UPDATE_HOUR, UPDATE_MINUTE)
-                    and last_slow_date != now_dt.date()):
+                    and last_slow_date != now_dt.date()
+                    and now - last_slow_attempt >= SLOW_RETRY_INTERVAL):
+                last_slow_attempt = now
                 try:
                     _run_full_update()
                     last_slow_date = now_dt.date()
                     retry_count = 0
                 except Exception as e:
                     retry_count += 1
-                    if retry_count < MAX_RETRIES:
-                        log.warning("[slow] failed (retry %d/%d): %s",
-                                    retry_count, MAX_RETRIES, e)
+                    if retry_count <= MAX_RETRIES:
+                        log.warning("[slow] failed (retry %d): %s",
+                                    retry_count, e)
                     else:
-                        log.warning("[slow] gave up: %s", e)
-                        last_slow_date = now_dt.date()
-                        retry_count = 0
+                        # 持续失败: 降级日志频率, 但仍按节流间隔重试到当天成功
+                        log.warning("[slow] still failing after %d attempts, "
+                                    "next retry in %ds: %s",
+                                    retry_count, SLOW_RETRY_INTERVAL, e)
 
         except BaseException as e:   # 含 SystemExit(cli._load_df 数据不足时抛出), 调度线程必须活着
             log.warning("[scheduler] loop error: %s", e)

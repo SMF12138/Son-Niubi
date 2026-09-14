@@ -27,7 +27,10 @@ def _load_rate_df():
     return rate_df
 
 def _load_all():
-    return _load_df(), _load_oil(), _load_sentiment(), _load_rate_df()
+    # 新闻情绪已于 2026-09 从生产链路下线: 有/无情绪完整回测四周期指标逐位相同
+    # (C5 确认对方向与把握度贡献均为 0); 自动抓取已停, 若继续读旧表, ffill 会把
+    # 最后一个情绪值向未来无限前传污染 confirms 展示, 故生产链路固定传 None。
+    return _load_df(), _load_oil(), None, _load_rate_df()
 
 
 def cmd_fetch(_):
@@ -93,17 +96,29 @@ def cmd_calibrate(_):
     return 0
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    """探测端口是否已有监听(单实例保护): 两个 serve 并存会双跑调度器,
+    造成重复抓取/回测与 SQLITE_BUSY。"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
 def cmd_serve(args):
     store.init_db()
+    if _port_in_use(config.HOST, config.PORT):
+        log.warning("http://%s:%s 已有服务在监听, 单实例模式退出"
+                    "(避免双调度器重复抓取/回测)", config.HOST, config.PORT)
+        return 0
     # 启动时同步最新数据(数据源无更新时 ~2s 内完成, 不拖慢)
     # 任一数据源失败只记日志, 用已有缓存继续 —— 断网也要能开看板
     prev_last = store.last_date()
-    from app.data.news import fetch_news
     from app.data.cbr_rates import fetch_key_rate
     from app.data.moex_rates import fetch_moex_onshore
+    # 新闻情绪已下线(贡献为 0), 启动同步不再抓 Google RSS。
     for name, fn in [("CBR", lambda: fetcher.sync()),
                      ("oil", fetcher.fetch_oil_prices),
-                     ("news", fetch_news),
                      ("key_rate", fetch_key_rate),
                      ("moex", fetch_moex_onshore)]:
         try:

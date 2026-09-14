@@ -102,6 +102,12 @@ def create_app() -> Flask:
             r = evaluate()
         except Exception as e:  # noqa: BLE001
             return jsonify({"error": str(e)}), 503
+        # 纯前瞻留档成绩单(最近20/50/100次已兑现), 含影子策略 OOS 对照
+        try:
+            from app.models.prediction_ledger import review
+            r["ledger"] = review()
+        except Exception as e:  # noqa: BLE001
+            r["ledger_error"] = str(e)
         return jsonify(r)
 
     @app.get("/api/predict")
@@ -392,7 +398,8 @@ def _build_uncertainty(df, forecast, direction, n) -> dict:
         pts = [
             f"{trend}，模型判断未来 {n} 日看{d}。",
             f"判断依据：莫斯科交易所(MOEX)在岸交易价与官方牌价出现显著偏离（|z|={az:.1f}）"
-            + (f"，且有{confirms}重信号相互印证。" if confirms and confirms >= 2 else "。"),
+            + (f"，另有{confirms}项当日信号同向佐证（不额外调整把握度）。"
+               if confirms and confirms >= 2 else "。"),
             f"历史上该置信水平的预测准确率约 {conf * 100:.0f}%，但仍受突发事件、央行政策等不可控因素影响。",
         ]
     elif conf >= 0.55:

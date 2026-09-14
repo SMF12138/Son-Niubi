@@ -11,9 +11,12 @@ from app import config
 
 
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH)
+    # timeout + busy_timeout: 手动 backtest 与 serve 慢层并发写时排队等待,
+    # 而不是立刻抛 SQLITE_BUSY(配合 WAL, 读写不互斥, 仅写-写需要短暂排队)。
+    conn = sqlite3.connect(config.DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=8000")
     return conn
 
 
@@ -64,6 +67,24 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS moex_rates("
             "date TEXT PRIMARY KEY,"
             "moex_close REAL, moex_high REAL, moex_low REAL)"
+        )
+        # prediction_ledger: 只追加的预测日记(详见模块底部 CRUD 注释)。
+        # prediction 为 NULL 表示当日中性/拒答; UNIQUE 保证同日同模型幂等。
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS prediction_ledger("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "as_of TEXT NOT NULL,"
+            "horizon INTEGER NOT NULL,"
+            "model_version TEXT NOT NULL,"
+            "is_shadow INTEGER NOT NULL DEFAULT 0,"
+            "prediction INTEGER,"
+            "confidence REAL,"
+            "meta TEXT,"
+            "created_ts REAL NOT NULL,"
+            "realized INTEGER,"
+            "realized_ret REAL,"
+            "realized_date TEXT,"
+            "UNIQUE(as_of, horizon, model_version))"
         )
         conn.commit()
 
@@ -201,3 +222,65 @@ def load_key_rate() -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
     return df
+
+
+# ===================== 预测留档(prediction ledger) =====================
+# 设计原则(对应升级清单第 9/10/14 条):
+# - 只追加不覆盖: 同一天同周期同模型版本只存首次(UNIQUE + OR IGNORE),
+#   快层每 60 秒重算不会写花;
+# - 预测与回填分离: 到期后用 N 个交易日后的真实价回填, 形成纯前瞻成绩单;
+# - 影子策略(is_shadow=1)与生产同表, 只记录不发声, 供未来版本 OOS 对照。
+
+def insert_predictions(rows: list[dict]) -> int:
+    """rows: as_of/horizon/model_version/is_shadow/prediction/confidence/meta/created_ts。
+    返回实际新增行数(重复键被忽略)。"""
+    if not rows:
+        return 0
+    import time as _time
+    payload = [
+        (r["as_of"], int(r["horizon"]), r["model_version"],
+         int(r.get("is_shadow", 0)),
+         r.get("prediction"), r.get("confidence"),
+         r.get("meta"), r.get("created_ts", _time.time()))
+        for r in rows
+    ]
+    with connect() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM prediction_ledger").fetchone()[0]
+        conn.executemany(
+            "INSERT OR IGNORE INTO prediction_ledger("
+            "as_of,horizon,model_version,is_shadow,prediction,confidence,meta,created_ts) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            payload,
+        )
+        conn.commit()
+        after = conn.execute("SELECT COUNT(*) FROM prediction_ledger").fetchone()[0]
+    return after - before
+
+
+def pending_predictions() -> list[sqlite3.Row]:
+    """所有到期未回填的记录。"""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT * FROM prediction_ledger WHERE realized IS NULL "
+            "ORDER BY as_of, horizon"
+        ).fetchall()
+
+
+def mark_realized(led_id: int, realized: int, realized_ret: float,
+                  realized_date: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE prediction_ledger SET realized=?, realized_ret=?, "
+            "realized_date=? WHERE id=?",
+            (int(realized), float(realized_ret), realized_date, int(led_id)),
+        )
+        conn.commit()
+
+
+def load_ledger(only_realized: bool = True) -> pd.DataFrame:
+    sql = "SELECT * FROM prediction_ledger"
+    if only_realized:
+        sql += " WHERE realized IS NOT NULL"
+    sql += " ORDER BY as_of, horizon, model_version"
+    with connect() as conn:
+        return pd.read_sql_query(sql, conn)

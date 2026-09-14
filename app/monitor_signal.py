@@ -107,6 +107,29 @@ def _moex7_preds(df):
     return ev
 
 
+def _calibration_freshness() -> dict:
+    """校准产物新鲜度。过期意味着页面把握度已回退到内置默认表/中性,
+    健康系统必须把对应周期调低, 不能用陈旧校准背书。
+
+    返回 {7: bool, 'long': bool}: True=已过期(不可信)。
+    """
+    import time
+    stale = {7: False, "long": False}
+    # 7日: moex_dir 校准文件(48h 宽限, 与 _CALIB_MAX_AGE_SEC 一致)
+    try:
+        from app.models.moex_dir import calibration_status
+        stale[7] = bool(calibration_status().get("is_fallback"))
+    except Exception:  # noqa: BLE001 状态不可得时保守处理由调用方决定, 这里不拦
+        stale[7] = False
+    # 30/60/90: 长周期回测产物(7天宽限, 与 _RESULT_MAX_AGE_SEC 一致)
+    try:
+        age = time.time() - config.LONGHORIZON_JSON.stat().st_mtime
+        stale["long"] = age > 7 * 24 * 3600
+    except OSError:
+        stale["long"] = True   # 文件缺失等同于不可信
+    return stale
+
+
 def evaluate() -> dict:
     from app.data import store
     store.init_db()
@@ -142,6 +165,21 @@ def evaluate() -> dict:
             "status": status,
             "alert": acc < cfg["alert"],
         }
+
+    # 校准过期: 命中率本身仍可计算, 但页面把握度已无新鲜校准背书,
+    # 强制把对应周期健康度调到 alert(调度器会持续重试补齐, 恢复后自动回正)。
+    stale = _calibration_freshness()
+    for key, is_stale in (("7", stale[7]), ("30", stale["long"]),
+                          ("60", stale["long"]), ("90", stale["long"])):
+        h = horizons.get(key)
+        if not is_stale or not h or h.get("status") == "no_data":
+            continue
+        h["calibration_stale"] = True
+        h["status"] = "alert"
+        h["alert"] = True
+        h["alert_reason"] = (
+            "7日校准文件缺失或超过48h, 把握度已回退内置表" if key == "7"
+            else "长周期回测产物缺失或超过7天, 把握度已过期")
 
     any_alert = any(h.get("alert") for h in horizons.values())
     any_degraded = any(h.get("status") == "degraded" for h in horizons.values())

@@ -44,3 +44,7 @@ CONFIDENT_THRESHOLD = 0.65
 # ---- Web ----
 HOST = "127.0.0.1"
 PORT = 8000
+
+# ---- 模型版本(写入 prediction_ledger, 版本对照升级清单第 14 条) ----
+# 变更生产规则时必须升版本号: 2026.09 = 30日 C1/C2/C4>=2 确认闸门 + 情绪下线版
+MODEL_VERSION = "2026.09-gate2"
