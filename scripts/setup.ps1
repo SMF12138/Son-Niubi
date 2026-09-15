@@ -23,32 +23,76 @@ if (-not $pyExe -and (Get-Command py -ErrorAction SilentlyContinue)) {
 }
 
 # 3) scan the default per-user install location, highest version first
-if (-not $pyExe) {
+function Get-PyFromDefaultDirs {
     $bases = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python\Python3*" -Directory -ErrorAction SilentlyContinue |
              Sort-Object Name -Descending
     foreach ($b in $bases) {
         $cand = Join-Path $b.FullName 'python.exe'
         if (Test-Path $cand) {
             & $cand -c $check 2>$null
-            if ($LASTEXITCODE -eq 0) { $pyExe = $cand; break }
+            if ($LASTEXITCODE -eq 0) { return $cand }
         }
     }
+    return $null
+}
+if (-not $pyExe) { $pyExe = Get-PyFromDefaultDirs }
+
+# --- 自动安装: 没有 Python 或版本不达标时, 静默安装一个新版并存(per-user, 无需管理员) ---
+function Install-PythonAuto {
+    $ver = '3.12.8'
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
+    $exe = "$env:TEMP\python-$ver-$arch.exe"
+    $uris = @(
+        "https://registry.npmmirror.com/-/binary/python/$ver/python-$ver-$arch.exe",
+        "https://mirrors.huawei.com/python/$ver/python-$ver-$arch.exe",
+        "https://www.python.org/ftp/python/$ver/python-$ver-$arch.exe"
+    )
+    Write-Host "[auto] no usable Python 3.10+ found - auto-installing $ver ($arch, per-user, coexists with any old version) ..."
+    $ok = $false
+    foreach ($u in $uris) {
+        try {
+            Write-Host "        try $u"
+            $ProgressPreference = 'SilentlyContinue'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            (New-Object System.Net.WebClient).DownloadFile($u, $exe)
+            if ((Get-Item $exe).Length -gt 60MB) { $ok = $true; break }
+        } catch { Write-Host "        download failed: $($_.Exception.Message)" }
+    }
+    if (-not $ok) {
+        Write-Host "ERROR: installer download failed. Install Python manually from"
+        Write-Host "       https://www.python.org/downloads/ (tick 'Add python.exe to PATH'),"
+        Write-Host "       then CLOSE and REOPEN your terminal and re-run this script."
+        return $false
+    }
+    Write-Host "        installing silently (per-user, no admin password needed) ..."
+    $p = Start-Process -FilePath $exe -ArgumentList @(
+            '/quiet', 'InstallAllUsers=0', 'PrependPath=1',
+            'Include_tkinter=1', 'Include_test=0', 'Include_launcher=1', '/norestart'
+         ) -Wait -PassThru
+    Remove-Item $exe -ErrorAction SilentlyContinue
+    if ($p.ExitCode -ne 0) {
+        Write-Host "ERROR: silent install failed (exit $($p.ExitCode)). Run '$exe' manually,"
+        Write-Host "       or install from https://www.python.org/downloads/ and re-run this script."
+        return $false
+    }
+    return $true
 }
 
 if (-not $pyExe) {
-    Write-Host ""
-    Write-Host "ERROR: no usable Python 3.10+ found. All of these were tried:"
-    Write-Host "  1) 'python' on PATH"
-    Write-Host "  2) 'py -3' launcher"
-    Write-Host "  3) $env:LOCALAPPDATA\Programs\Python\Python3*"
-    Write-Host ""
-    Write-Host "How to fix:"
-    Write-Host "  - Run the Python installer again and TICK 'Add python.exe to PATH',"
-    Write-Host "    then CLOSE and REOPEN your terminal before re-running this script."
-    Write-Host "  - If you installed Python from the Microsoft Store, remove it and"
-    Write-Host "    install from https://www.python.org/downloads/ instead."
-    Write-Host ""
-    exit 1
+    if (-not (Install-PythonAuto)) { exit 1 }
+    # 安装完成: PrependPath 只影响新终端, 当前会话直接扫默认目录
+    $pyExe = Get-PyFromDefaultDirs
+    if (-not $pyExe) {
+        # winget 安装路径兜底
+        $wg = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Python*" -Recurse -Filter python.exe -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+        if ($wg) { $pyExe = $wg.FullName }
+    }
+    if (-not $pyExe) {
+        Write-Host "ERROR: auto-install finished but Python not detected. CLOSE and REOPEN your"
+        Write-Host "       terminal, then re-run this script."
+        exit 1
+    }
 }
 Write-Host "      OK ($pyExe $pyPre)"
 
