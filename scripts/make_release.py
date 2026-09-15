@@ -15,15 +15,16 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent
-TMP = Path(__file__).resolve().parent / "_pkg_tmp"
+SRC = Path(__file__).resolve().parent.parent      # 项目根
+OUT_DIR = SRC.parent.parent                        # .../Code(与历史包位置一致)
+TMP = SRC / "scripts" / "_pkg_tmp"
 
 COMMON_FILES = [
     "floating_pet.py",
     "README.md", "KNOWN_ISSUES.md", "STRATEGY_FINDINGS.md", "DEVELOPMENT.md",
     "LICENSE", "requirements.txt", "requirements-dev.txt",
     "start.bat", "start.vbs", "stop.bat", "launch_widget.vbs",
-    "start.command", "start.sh", "stop.sh",
+    "start.command", "stop.command", "start.sh", "stop.sh",
 ]
 SCRIPTS = ["setup.bat", "setup.ps1", "run.ps1", "setup.sh", "run.sh"]
 WIN_ONLY_SUFFIX = {".bat", ".vbs", ".ps1"}
@@ -95,9 +96,8 @@ def main() -> None:
     if len(sys.argv) != 2 or not sys.argv[1].startswith("v"):
         sys.exit("用法: python scripts/make_release.py vX.Y.Z")
     ver = sys.argv[1]
-    out_dir = SRC.parent
-    out_zip = out_dir / f"SonNiuBi-{ver}.zip"
-    out_tgz = out_dir / f"Son-NiuBi-{ver}-Mac.tar.gz"
+    out_zip = OUT_DIR / f"SonNiuBi-{ver}.zip"
+    out_tgz = OUT_DIR / f"Son-NiuBi-{ver}-Mac.tar.gz"
 
     try:
         stage = build_stage(TMP)
