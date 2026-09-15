@@ -5,6 +5,9 @@ from flask import Flask, jsonify, request, send_from_directory
 from app import config
 from app.forecast import load_forecast, build_projection
 from app.data import store
+from app.monitor_signal import (
+    WINDOW_DAYS, _longhorizon_preds, _moex7_preds,
+)
 
 
 def create_app() -> Flask:
@@ -150,7 +153,11 @@ def create_app() -> Flask:
         # 历史成绩单: 7 日用 MOEX 方向回测;30/60/90 日用长周期模型自己的 OOS 回测
         # (严禁拿 A 模型的命中率给 B 模型背书)。长周期全部信号名都要走这边,
         # 否则会漏进下方 7 日分支拿到旧版回测的错数字。
+        # 统一口径: overall=全史命中率(主行), rolling=近一年滚动命中率(副行,
+        # 与 /api/signal_health 同算法同数字)。
         model_acc = None
+        ev = None
+        cutoff = df.index[-1] - pd.Timedelta(days=WINDOW_DAYS)
         if direction and direction.get("signal") in (
                 "long_reversion", "moex_spread", "extreme_dist", "breakout") \
                 and config.LONGHORIZON_JSON.exists():
@@ -158,16 +165,14 @@ def create_app() -> Flask:
                 with open(config.LONGHORIZON_JSON, encoding="utf-8") as f:
                     lj = json.load(f)
                 lh = lj.get("horizons", {}).get(str(n), {})
-                model_acc = {
-                    "overall": lh.get("oos_hit"),
-                    "confident": lh.get("confirmed_hit"),
-                    "modern": ((lh.get("eras") or {}).get("2021-今") or {}).get("hit"),
-                    "passed_gate": lh.get("passed_70pct_gate"),
-                    "coverage": lh.get("coverage"),
-                    "emitted": lh.get("oos_emitted"),
-                }
+                model_acc = {"overall": lh.get("oos_hit")}
             except (OSError, json.JSONDecodeError):
                 model_acc = None
+            if model_acc is not None:
+                try:
+                    ev = _longhorizon_preds(df, n, oil_df=store.load_oil())
+                except Exception:
+                    ev = None   # 滚动命中率算不出不阻塞预测卡
         elif config.DIRECTION_JSON.exists():
             try:
                 with open(config.DIRECTION_JSON, encoding="utf-8") as f:
@@ -175,10 +180,16 @@ def create_app() -> Flask:
             except (OSError, json.JSONDecodeError):
                 dj = {}   # 文件正在被调度器重写: 本轮拿不到准确率, 下次刷新再取
             h = dj.get("horizons", {}).get(str(n), {})
-            model_acc = {
-                "overall": h.get("moex_accuracy", h.get("accuracy")),
-                "confident": h.get("moex_confident_accuracy", h.get("confident_accuracy")),
-            }
+            model_acc = {"overall": h.get("moex_accuracy", h.get("accuracy"))}
+            try:
+                ev = _moex7_preds(df)
+            except Exception:
+                ev = None
+        if model_acc is not None and ev is not None:
+            recent = [hit for d, hit in ev if pd.Timestamp(d) >= cutoff]
+            if recent:
+                model_acc["rolling"] = round(sum(recent) / len(recent), 4)
+                model_acc["rolling_n"] = len(recent)
 
         # ---- 不确定性上下文(解释为什么这个预测可能不准) ----
         uncertainty = _build_uncertainty(df, forecast, direction, n)

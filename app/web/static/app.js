@@ -147,9 +147,9 @@ function renderHero(d) {
   };
   const sig = sigNames[dir.signal] || "—";
   const cs = dir.confirms ? ` · ${dir.confirms}重确认` : "";
-  // 副行: 有"高把握子集"命中率(7日)用它; 长周期无此子集, 用 2021 以来年代命中率
-  const accSub = acc.confident != null ? `高把握时 ${fmtPct(acc.confident)}`
-      : acc.modern != null ? `2021年以来 ${fmtPct(acc.modern)}` : "—";
+  // 副行统一口径: 近一年滚动命中率(与健康面板同算法同数字),
+  // 与主行(历史准确率=全史)形成跨期对比——两者差距即模型近期漂移。
+  const accSub = acc.rolling != null ? `近一年 ${fmtPct(acc.rolling)}` : "—";
 
   el.innerHTML = `
     <div class="hero-row">
