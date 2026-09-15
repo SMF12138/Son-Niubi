@@ -55,7 +55,9 @@ function Install-PythonAuto {
             $ProgressPreference = 'SilentlyContinue'
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
             (New-Object System.Net.WebClient).DownloadFile($u, $exe)
-            if ((Get-Item $exe).Length -gt 60MB) { $ok = $true; break }
+            # 官方 exe 实际 ~27MB(amd64 实测 27043760 字节); 阈值只用来
+            # 拦截 HTML 报错页/截断文件, 不能大于真实包
+            if ((Get-Item $exe).Length -gt 15MB) { $ok = $true; break }
         } catch { Write-Host "        download failed: $($_.Exception.Message)" }
     }
     if (-not $ok) {

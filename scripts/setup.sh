@@ -66,8 +66,10 @@ auto_install_python() {
                 "https://mirrors.huawei.com/python/${ver}" \
                 "https://www.python.org/ftp/python/${ver}"; do
                 echo "        try ${base}/${pkg}"
+                # 官方 pkg 实际 ~46MB(实测 46118924 字节); 阈值只用来拦截
+                # HTML 报错页/截断文件, 不能大于真实包
                 if curl -fL --max-time 900 "${base}/${pkg}" -o "/tmp/${pkg}" \
-                   && [ "$(wc -c < "/tmp/${pkg}" | tr -d ' ')" -gt 50000000 ]; then
+                   && [ "$(wc -c < "/tmp/${pkg}" | tr -d ' ')" -gt 30000000 ]; then
                     ok=true
                     break
                 fi
