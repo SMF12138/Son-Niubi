@@ -14,7 +14,8 @@ PY=".venv/bin/python"
 # If service already running, just start pet
 if curl -s --max-time 2 "http://127.0.0.1:8000/api/health" >/dev/null 2>&1; then
     echo "Flask already running, starting pet only..."
-    "$PY" floating_pet.py &
+    mkdir -p logs
+    "$PY" floating_pet.py > logs/pet.log 2>&1 &
     exit 0
 fi
 
@@ -29,7 +30,8 @@ sleep 2
 
 # Launch desktop pet
 echo "Starting desktop pet..."
-"$PY" floating_pet.py &
+mkdir -p logs
+"$PY" floating_pet.py > logs/pet.log 2>&1 &
 PET_PID=$!
 echo "Pet PID: $PET_PID"
 

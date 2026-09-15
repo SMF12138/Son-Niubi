@@ -331,14 +331,16 @@ class FloatingPet:
         self.root.title("CNY/RUB 桌宠")
         self.font, self.font_strong, self._strong_real = resolve_fonts()
         self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
+        try:
+            self.root.attributes("-topmost", True)
+        except tk.TclError:
+            pass
 
-        # macOS: 用 wm_attributes("-transparent", True) 实现透明
-        # Windows: 用 -transparentcolor 指定透明色
+        # macOS: aqua Tk 没有 -transparent 属性(那是 X11 专属), 也没有
+        # "systemTransparent" 颜色名——之前这两行让宠物进程启动即崩,
+        # 表现为桌宠闪退无窗口。改用与卡片底同色的深色窗口底代替抠透明。
         if IS_MAC:
-            self.root.wm_attributes("-transparent", True)
-            self.root.configure(bg="systemTransparent")
-            self._canvas_bg = "systemTransparent"
+            self._canvas_bg = BG
         else:
             self.root.configure(bg=TRANSPARENT_KEY)
             self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
