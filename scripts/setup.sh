@@ -173,5 +173,14 @@ fi
 # 双击 setup.command / start.command / stop.command 直接可用
 chmod +x setup.command start.command stop.command start.sh stop.sh scripts/*.sh 2>/dev/null || true
 
+# 桌面启动器(失败不阻塞安装): 双击桌面图标即可 启动/停止, 内嵌本目录绝对路径
+if [ -d "$HOME/Desktop" ]; then
+    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$HOME/Desktop/Son NiuBi.command" 2>/dev/null && \
+    printf '#!/bin/bash\ncd "%s"\nexec bash stop.sh\n' "$PWD" > "$HOME/Desktop/Son NiuBi 停止.command" 2>/dev/null && \
+    chmod +x "$HOME/Desktop/Son NiuBi.command" "$HOME/Desktop/Son NiuBi 停止.command" 2>/dev/null && \
+    echo "Desktop launchers created: 'Son NiuBi.command' / 'Son NiuBi 停止.command'" || \
+    echo "(桌面启动器创建失败, 不影响使用)"
+fi
+
 echo ""
 echo "Setup complete. Start the dashboard with ./start.sh"
