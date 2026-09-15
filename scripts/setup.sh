@@ -1,48 +1,141 @@
 #!/bin/bash
 # One-click installer for macOS (and Linux)
-# Creates .venv, installs dependencies, downloads ECharts
+# 1. Finds an existing Python 3.10+
+# 2. If missing or too old, AUTO-INSTALLS one (coexists with system Python, never touches it):
+#    - macOS with Homebrew: brew install python python-tk   (no password needed)
+#    - macOS without brew : downloads python.org official universal2 pkg and
+#      installs it (asks for ONE admin password - macOS security requirement)
+#    - Linux: apt / dnf / pacman
+# 3. Creates .venv, installs dependencies, downloads ECharts if missing
 set -e
 cd "$(dirname "$0")/.."
 
-echo "[1/4] Locating Python 3.10+ ..."
+echo "[1/5] Locating Python 3.10+ ..."
 
-# Try python3 first, then python
-PY_EXE=""
-for cmd in python3 python; do
-    if command -v "$cmd" &>/dev/null; then
+# --- helper: echo the first candidate whose version is >= 3.10 ---
+find_py() {
+    local cmd ver major minor
+    for cmd in "$@"; do
+        command -v "$cmd" &>/dev/null || continue
         ver=$("$cmd" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0")
-        major=$(echo "$ver" | cut -d. -f1)
-        minor=$(echo "$ver" | cut -d. -f2)
-        if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
-            PY_EXE="$cmd"
-            break
+        major=${ver%%.*}
+        minor=${ver#*.}
+        if [ "$major" -eq 3 ] && [ "$minor" -ge 10 ]; then
+            echo "$cmd"
+            return 0
         fi
+    done
+    return 1
+}
+
+PY_EXE=$(find_py python3 python || true)
+
+# 常见安装位置兜底(python.org 官方包 / Homebrew), PATH 里没有也能找到
+if [ -z "$PY_EXE" ]; then
+    PY_EXE=$(find_py \
+        /opt/homebrew/bin/python3 \
+        /usr/local/bin/python3.13 /usr/local/bin/python3.12 /usr/local/bin/python3.11 /usr/local/bin/python3.10 \
+        /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.10/bin/python3 || true)
+fi
+
+# --- 自动安装: 没有或版本不达标时, 并排装一个新版 (不动系统自带 Python) ---
+auto_install_python() {
+    echo ""
+    echo "[auto] 未找到 Python 3.10+, 开始自动安装 (与系统自带版本并存, 不修改系统) ..."
+    if command -v brew &>/dev/null; then
+        echo "[auto] 检测到 Homebrew: brew install python (全程无需密码)"
+        if brew install python; then
+            brew install python-tk || \
+                echo "[auto] python-tk 安装失败: 看板不受影响, 桌宠可稍后执行 brew install python-tk"
+            return 0
+        fi
+        echo "[auto] brew 安装 python 失败, 改用 python.org 官方安装包 ..."
     fi
-done
+    case "$(uname -s)" in
+        Darwin)
+            local ver pkg ok=false i
+            ver="3.12.8"
+            pkg="python-${ver}-macos11.pkg"   # universal2: Intel / Apple Silicon 通用
+            echo "[auto] 下载 python.org 官方安装包 ${pkg} (~70MB) ..."
+            rm -f "/tmp/${pkg}"
+            for base in \
+                "https://registry.npmmirror.com/-/binary/python/${ver}" \
+                "https://mirrors.huawei.com/python/${ver}" \
+                "https://www.python.org/ftp/python/${ver}"; do
+                echo "        try ${base}/${pkg}"
+                if curl -fL --max-time 900 "${base}/${pkg}" -o "/tmp/${pkg}" \
+                   && [ "$(wc -c < "/tmp/${pkg}" | tr -d ' ')" -gt 50000000 ]; then
+                    ok=true
+                    break
+                fi
+            done
+            if [ "$ok" != true ]; then
+                echo ""
+                echo "ERROR: 安装包下载失败。请手动安装 Python:"
+                echo "  https://www.python.org/downloads/  (安装时勾选 tkinter, 桌宠需要)"
+                echo ""
+                return 1
+            fi
+            echo "[auto] 开始安装, 需要输入一次管理员密码 (macOS 安全机制, 仅此一次)"
+            if ! sudo installer -pkg "/tmp/${pkg}" -target /; then
+                echo ""
+                echo "ERROR: 安装失败。请双击 /tmp/${pkg} 手动安装后重新运行本脚本"
+                echo ""
+                return 1
+            fi
+            rm -f "/tmp/${pkg}"
+            return 0
+            ;;
+        Linux)
+            if command -v apt-get &>/dev/null; then
+                sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-tk
+            elif command -v dnf &>/dev/null; then
+                sudo dnf install -y python3 python3-tkinter
+            elif command -v yum &>/dev/null; then
+                sudo yum install -y python3 python3-tkinter
+            elif command -v pacman &>/dev/null; then
+                sudo pacman -S --noconfirm python
+            else
+                echo "ERROR: 未识别的发行版, 请手动安装 Python 3.10+ 后重新运行"
+                return 1
+            fi
+            ;;
+        *)
+            echo "ERROR: 不支持的系统 $(uname -s), 请手动安装 Python 3.10+ 后重新运行"
+            return 1
+            ;;
+    esac
+}
 
 if [ -z "$PY_EXE" ]; then
-    echo ""
-    echo "ERROR: Python 3.10+ not found."
-    echo ""
-    echo "Install Python:"
-    echo "  macOS:  brew install python3    (or download from https://www.python.org/downloads/)"
-    echo "  Linux:  sudo apt install python3 (or equivalent for your distro)"
-    echo ""
-    exit 1
+    auto_install_python || exit 1
+    # 安装后重新探测 (新装解释器可能还没进当前终端的 PATH)
+    PY_EXE=$(find_py python3 python \
+        /usr/local/bin/python3.12 /usr/local/bin/python3.13 \
+        /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
+        /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+        /opt/homebrew/bin/python3 || true)
+    if [ -z "$PY_EXE" ]; then
+        echo "ERROR: 自动安装已完成但仍未探测到 Python, 请关闭终端重新运行本脚本"
+        exit 1
+    fi
 fi
 echo "      OK ($PY_EXE)"
 
-echo "[2/4] Creating virtual environment .venv ..."
+echo "[2/5] Creating virtual environment .venv ..."
 if [ ! -f ".venv/bin/python" ]; then
     "$PY_EXE" -m venv .venv
 fi
 
 PY=".venv/bin/python"
-echo "[3/4] Installing dependencies (requirements.txt) ..."
+echo "[3/5] Installing dependencies (requirements.txt) ..."
 "$PY" -m pip install --disable-pip-version-check -q -r requirements.txt
 
 VENDOR="app/web/static/vendor/echarts.min.js"
-echo "[4/4] Preparing local ECharts asset ..."
+echo "[4/5] Preparing local ECharts asset ..."
 if [ ! -f "$VENDOR" ]; then
     mkdir -p "$(dirname "$VENDOR")"
     OK=false
@@ -66,7 +159,7 @@ fi
 
 "$PY" -c "import flask, pandas, numpy; print('Dependencies OK')"
 
-# tkinter 是桌宠依赖;python.org 官方包自带, Homebrew Python 默认缺失
+echo "[5/5] Checking tkinter (桌宠依赖) ..."
 if "$PY" -c "import tkinter" 2>/dev/null; then
     echo "tkinter OK (桌宠可用)"
 else
