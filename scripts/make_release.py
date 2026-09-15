@@ -24,7 +24,7 @@ COMMON_FILES = [
     "README.md", "KNOWN_ISSUES.md", "STRATEGY_FINDINGS.md", "DEVELOPMENT.md",
     "LICENSE", "requirements.txt", "requirements-dev.txt",
     "start.bat", "start.vbs", "stop.bat", "launch_widget.vbs",
-    "start.command", "stop.command", "start.sh", "stop.sh",
+    "start.command", "stop.command", "setup.command", "start.sh", "stop.sh",
 ]
 SCRIPTS = ["setup.bat", "setup.ps1", "run.ps1", "setup.sh", "run.sh"]
 WIN_ONLY_SUFFIX = {".bat", ".vbs", ".ps1"}

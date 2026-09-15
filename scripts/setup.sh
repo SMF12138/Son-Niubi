@@ -170,8 +170,8 @@ else
 fi
 
 # tar 包在 Windows 上打包会丢执行位; 这里统一补上, 保证 ./start.sh 和
-# 双击 start.command / stop.command 直接可用
-chmod +x start.sh start.command stop.command stop.sh scripts/*.sh 2>/dev/null || true
+# 双击 setup.command / start.command / stop.command 直接可用
+chmod +x setup.command start.command stop.command start.sh stop.sh scripts/*.sh 2>/dev/null || true
 
 echo ""
 echo "Setup complete. Start the dashboard with ./start.sh"
