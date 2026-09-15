@@ -135,9 +135,21 @@ function renderHero(d) {
     bc = "badge-" + uBadge.tier;
   }
 
-  const sigNames = { moex_dev: "MOEX市场偏离", meanrev_strong: "均值回复(强偏离)", mean_rev: "均值回复", long_reversion: "长期中枢回复" };
-  const sig = sigNames[dir.signal] || dir.signal || "—";
+  // 信号名统一中文口径(覆盖全部后端 signal 值, 缺项会漏出英文原文)
+  const sigNames = {
+    moex_dev: "市场偏离",
+    moex_spread: "市场价差",
+    meanrev_strong: "强均值回复",
+    mean_rev: "均值回复",
+    long_reversion: "长期均值回复",
+    extreme_dist: "极值偏离",
+    breakout: "区间突破",
+  };
+  const sig = sigNames[dir.signal] || "—";
   const cs = dir.confirms ? ` · ${dir.confirms}重确认` : "";
+  // 副行: 有"高把握子集"命中率(7日)用它; 长周期无此子集, 用 2021 以来年代命中率
+  const accSub = acc.confident != null ? `高把握时 ${fmtPct(acc.confident)}`
+      : acc.modern != null ? `2021年以来 ${fmtPct(acc.modern)}` : "—";
 
   el.innerHTML = `
     <div class="hero-row">
@@ -160,7 +172,7 @@ function renderHero(d) {
         <div class="hero-stat">
           <span class="stat-label">历史准确率</span>
           <span class="stat-value">${fmtPct(acc.overall)}</span>
-          <span class="stat-sub">高把握时 ${fmtPct(acc.confident)}</span>
+          <span class="stat-sub">${accSub}</span>
         </div>
         <div class="hero-stat">
           <span class="stat-label">数据截至</span>

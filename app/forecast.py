@@ -20,73 +20,90 @@ BAND_COVERAGE = 0.80
 BAND_COVERAGE_MULT = {30: 1.51, 60: 1.81, 90: 2.02}
 
 
-def build_projection(cur_rate, direction, dates, daily_vol=None):
-    """基于方向结论生成投影路径(中位 + 不确定性带)。
+def _anchor_disp(direction, horizon=7):
+    """单个模型在其到期日的目标位移(对数): "从今天到该周期到期"的中位对数变动。
 
-    Args:
-        cur_rate: 当前汇率(1 CNY = X RUB)
-        direction: 方向预测 dict (prediction, confidence, ...)
-        dates: 未来日期列表(字符串或 date 对象)
-        daily_vol: 近窗日对数收益标准差; 给定后不确定性带按 sqrt(k) 波动扩散
-            (1 个 sigma, 非严格统计置信区间)。None 时回退历史常数带宽(仅兜底)。
-
-    注意: 中位线的幅度(0.0161*sig_w)只是"方向示意", 非点估计;
-    真正有数据依据的是带宽随已实现波动率的缩放。
+    幅度 = 0.0161*sig_w*sqrt(horizon/7):
+      - sig_w 随把握度连续变化(无下限钳死), 55%->0.1, 70%->0.4, 100%->1;
+      - sqrt(horizon/7) 让长周期的示意位移大于短周期(与波动带 sqrt(k) 扩散
+        同口径), 否则拼接后同方向的各期限锚点重合、曲线中途变平。
+    弱信号(<0.55)/中性/无方向 -> 0(锚点贴当前价, 该段走平)。
+    幅度只是"方向示意", 非点估计; 真正有数据依据的是波动带。
     """
-    # 弱信号口径(与前端一致): 把握度 < 55% 中位线不偏移, 只给对称波动区间
     conf = direction.get("confidence") if direction else None
     weak = isinstance(conf, (int, float)) and conf < 0.55
-    if (not direction or direction.get("prediction") not in (0, 1) or weak):
-        if not direction or (not direction.get("neutral") and not weak):
-            return []
-        n = len(dates)
-        if n == 0:
-            return []
-        base = np.log(cur_rate)
-        mult = BAND_COVERAGE_MULT.get(n, 1.0)
-        forecast = []
-        for k, dt in enumerate(dates):
-            frac = (k + 1) / n
-            if daily_vol and daily_vol > 0:
-                halfband = daily_vol * math.sqrt(k + 1) * mult
-            else:
-                halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
-            p50 = cur_rate
-            lo = float(np.exp(base - halfband))
-            hi = float(np.exp(base + halfband))
-            dt_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
-            forecast.append({"date": dt_str, "rate": round(p50, 4),
-                             "low": round(lo, 4), "high": round(hi, 4)})
-        return forecast
-    pred = direction["prediction"]
-    conf = direction.get("confidence", 0.55)
+    if not direction or direction.get("prediction") not in (0, 1) or weak:
+        return 0.0
+    sign_dir = -1.0 if direction["prediction"] == 0 else 1.0
+    sig_w = min(1.0, max(0.0, (conf - 0.5) * 2))
+    scale = math.sqrt(max(horizon, 1) / 7.0)
+    return sign_dir * 0.0161 * sig_w * scale
+
+
+def build_term_projection(cur_rate, anchors, dates, daily_vol=None):
+    """期限结构拼接投影: 多个周期模型各自给出"到期日锚点", 锚点间插值。
+
+    例: 60 日图锚点 = [(0,0),(7,d7),(30,d30),(60,d60)], 第 1-7 天跟随
+    7 日模型、8-30 天跟随 30 日模型、31-60 天跟随 60 日模型——短周期看跌、
+    长周期看涨时曲线自然先跌后涨, 而不是用长周期一个方向抹掉前段。
+
+    Args:
+        cur_rate: 当前汇率
+        anchors: [(交易日偏移k, 对数位移disp)] 已排序, 必须以 (0,0.0) 起、
+                 末点 k == len(dates)
+        dates: 未来交易日列表
+        daily_vol: 近窗日波动率, 带宽按 sqrt(k) 扩散
+    """
     n = len(dates)
-    if n == 0:
+    if n == 0 or not anchors:
         return []
-
-    sign_dir = -1.0 if pred == 0 else 1.0
-    sig_w = max(0.5, min(1.0, (conf - 0.5) * 2))
     base = np.log(cur_rate)
-    med = sign_dir * 0.0161 * sig_w
-
-    forecast = []
     mult = BAND_COVERAGE_MULT.get(n, 1.0)
-    for k, dt in enumerate(dates):
-        frac = (k + 1) / n
-        path = frac ** 0.7
-        p50 = float(np.exp(base + med * path))
-        # 有 daily_vol: σ*sqrt(k)*校准系数 的波动扩散; 兜底: 旧的经验喇叭口
+    forecast = []
+    for kk, dt_ in enumerate(dates):
+        k = kk + 1  # 1-based 交易日序号
+        # 定位 k 所在锚点段 [a, b]
+        a, da = 0, 0.0
+        b, db = anchors[-1]
+        for (a0, d0), (b0, d1) in zip(anchors[:-1], anchors[1:]):
+            if a0 < k <= b0:
+                a, da, b, db = a0, d0, b0, d1
+                break
+        frac = (k - a) / (b - a) if b > a else 1.0
+        disp = da + (db - da) * frac ** 0.7
         if daily_vol and daily_vol > 0:
-            halfband = daily_vol * math.sqrt(k + 1) * mult
+            halfband = daily_vol * math.sqrt(k) * mult
         else:
-            halfband = 0.012 * math.sqrt(frac) * (1.0 + (n / 90.0))
-        lo = float(np.exp(base + med * path - halfband))
-        hi = float(np.exp(base + med * path + halfband))
-        dt_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+            halfband = 0.012 * math.sqrt(k / n) * (1.0 + (n / 90.0))
+        p50 = float(np.exp(base + disp))
+        lo = float(np.exp(base + disp - halfband))
+        hi = float(np.exp(base + disp + halfband))
+        dt_str = dt_.isoformat() if hasattr(dt_, "isoformat") else str(dt_)
         forecast.append({"date": dt_str, "rate": round(p50, 4),
                          "low": round(min(lo, p50), 4),
                          "high": round(max(hi, p50), 4)})
     return forecast
+
+
+def build_projection(cur_rate, direction, dates, daily_vol=None):
+    """基于方向结论生成投影路径(中位 + 不确定性带)。
+
+    单周期便捷封装: 锚点只有 (今天,0) 与 (N天,该模型目标位移)。
+    多周期期限结构拼接见 build_term_projection。
+    """
+    # 弱信号/中性: 中位线贴当前价, 只给对称波动区间
+    conf = direction.get("confidence") if direction else None
+    weak = isinstance(conf, (int, float)) and conf < 0.55
+    if not direction or direction.get("prediction") not in (0, 1):
+        # 无任何方向结论(连中性标记都没有): 不画预测
+        if not direction or not direction.get("neutral"):
+            return []
+        anchors = [(0, 0.0), (len(dates), 0.0)]
+    elif weak:
+        anchors = [(0, 0.0), (len(dates), 0.0)]
+    else:
+        anchors = [(0, 0.0), (len(dates), _anchor_disp(direction, len(dates)))]
+    return build_term_projection(cur_rate, anchors, dates, daily_vol=daily_vol)
 
 
 def recent_daily_vol(lp, window=60):
@@ -124,6 +141,7 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
     daily_vol = recent_daily_vol(lp)
 
     drs = {}
+    fdates_map = {}
     for N in config.N_HORIZONS:
         if N == 7:
             dr = predictor.predict_direction(ctx, N)
@@ -131,9 +149,25 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
             dr = predict_longhorizon(lp, _dates, moex_map, N, result=lh_result,
                                      oil_df=oil_df)
         drs[N] = dr
-        fdates = future_trading_dates(base_date, N)
+        fdates_map[N] = future_trading_dates(base_date, N)
 
-        forecast = build_projection(cur_rate, dr, fdates, daily_vol=daily_vol)
+    # 期限结构拼接: 长周期图必须逐段服从更短周期模型——
+    # 7日看跌/30日看涨时, 30日图先跌后涨, 而不是被长周期一个方向抹平。
+    # future_trading_dates 是同一日历的确定性推演, 长周期日期列的前 k 个
+    # 与短周期完全一致, 锚点可直接按交易日序号拼接。
+    for N in config.N_HORIZONS:
+        fdates = fdates_map[N]
+        shorter = [h for h in config.N_HORIZONS if h < N]
+        if not shorter:
+            forecast = build_projection(cur_rate, drs[N], fdates,
+                                        daily_vol=daily_vol)
+        else:
+            anchors = [(0, 0.0)]
+            for h in shorter:
+                anchors.append((h, _anchor_disp(drs[h], h)))
+            anchors.append((N, _anchor_disp(drs[N], N)))
+            forecast = build_term_projection(cur_rate, anchors, fdates,
+                                             daily_vol=daily_vol)
 
         fc = {
             "N": N,
@@ -141,7 +175,12 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
             "base_rate": round(cur_rate, 4),
             "forecast_dates": [d.isoformat() for d in fdates],
             "forecast": forecast,
-            "direction": dr,
+            "direction": drs[N],
+            "term_anchors": [
+                {"horizon": h, "prediction": (drs[h] or {}).get("prediction"),
+                 "confidence": (drs[h] or {}).get("confidence")}
+                for h in shorter + [N]
+            ] if shorter else [],
         }
 
         path = config.FORECAST_JSONS.get(N)

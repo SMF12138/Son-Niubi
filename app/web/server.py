@@ -126,33 +126,33 @@ def create_app() -> Flask:
         tail = df.tail(span)
         hist = [{"date": d.date().isoformat(), "rate": float(v)}
                 for d, v in zip(tail.index, tail["cny_rub"])]
-        # ---- 预测投影: 以方向模型为准。中性时 forecast JSON 里带对称区间 ----
+        # ---- 预测投影: 直接用 JSON 里的期限结构拼接曲线 ----
+        # (长周期图逐段服从 7/30/60 日更短模型; 拼接逻辑在 save_forecasts)
         fc = load_forecast(n)
         forecast = []
         direction = None
         if fc:
             direction = fc.get("direction")
-        if direction and direction.get("prediction") in (0, 1):
+            forecast = fc.get("forecast", [])
+        elif config.N_HORIZONS:
+            # JSON 缺失(首次启动尚未跑过预测)时单段兜底
             cur = float(df["cny_rub"].iloc[-1])
-            dates = fc.get("forecast_dates", []) if fc else []
-            if not dates:
-                import datetime as _dt
-                lastd = _dt.date.fromisoformat(df.index[-1].date().isoformat())
-                dates = [(lastd + _dt.timedelta(days=k + 1)).isoformat()
-                         for k in range(n)]
+            import datetime as _dt
+            lastd = _dt.date.fromisoformat(df.index[-1].date().isoformat())
+            dates = [(lastd + _dt.timedelta(days=k + 1)).isoformat()
+                     for k in range(n)]
             from app.forecast import recent_daily_vol
             import numpy as _np
             daily_vol = recent_daily_vol(
                 _np.log(df["cny_rub"].to_numpy(dtype=float)))
-            forecast = build_projection(cur, direction, dates,
+            forecast = build_projection(cur, None, dates,
                                         daily_vol=daily_vol)
-        elif direction and direction.get("neutral"):
-            # 方向不明: 不画中位方向, 只给做预算用的对称波动区间
-            forecast = fc.get("forecast", [])
         # 历史成绩单: 7 日用 MOEX 方向回测;30/60/90 日用长周期模型自己的 OOS 回测
-        # (严禁拿 A 模型的命中率给 B 模型背书)
+        # (严禁拿 A 模型的命中率给 B 模型背书)。长周期全部信号名都要走这边,
+        # 否则会漏进下方 7 日分支拿到旧版回测的错数字。
         model_acc = None
-        if direction and direction.get("signal") == "long_reversion" \
+        if direction and direction.get("signal") in (
+                "long_reversion", "moex_spread", "extreme_dist", "breakout") \
                 and config.LONGHORIZON_JSON.exists():
             try:
                 with open(config.LONGHORIZON_JSON, encoding="utf-8") as f:
@@ -161,6 +161,7 @@ def create_app() -> Flask:
                 model_acc = {
                     "overall": lh.get("oos_hit"),
                     "confident": lh.get("confirmed_hit"),
+                    "modern": ((lh.get("eras") or {}).get("2021-今") or {}).get("hit"),
                     "passed_gate": lh.get("passed_70pct_gate"),
                     "coverage": lh.get("coverage"),
                     "emitted": lh.get("oos_emitted"),
@@ -181,6 +182,20 @@ def create_app() -> Flask:
 
         # ---- 不确定性上下文(解释为什么这个预测可能不准) ----
         uncertainty = _build_uncertainty(df, forecast, direction, n)
+        # 期限结构图注: 更短周期模型与本周期方向不一致时, 解释曲线为何转折
+        if fc and n > 7 and uncertainty.get("points") is not None:
+            anchors = fc.get("term_anchors") or []
+            final_pred = direction.get("prediction") if direction else None
+            for a in anchors:
+                if a["horizon"] < n and a.get("prediction") in (0, 1) \
+                        and final_pred in (0, 1) \
+                        and a["prediction"] != final_pred:
+                    sd, fd = ("涨", "跌") if a["prediction"] == 1 else ("跌", "涨")
+                    uncertainty["points"].append(
+                        f"图中前{a['horizon']}天跟随{a['horizon']}日模型（看{sd}），"
+                        f"其后转向本{n}日模型（看{fd}）——中位曲线为多周期逐段拼接，"
+                        f"不是单一方向直线；转折点反映的正是不同期限观点的分歧。")
+                    break
         # 校准新鲜度: 过期时把握度已静默回退到内置默认表, 必须让界面能显示出来
         from app.models.moex_dir import calibration_status
 

@@ -104,15 +104,19 @@ def sync(progress=None) -> dict:
         else dt.date.fromisoformat(config.DATA_START)
     )
     today = dt.date.today()
+    # CBR 每个工作日傍晚发布"次一交易日"的官方牌价(长假前甚至一次发布多日),
+    # 记录日期落在未来; 窗口上界放宽到 today+7 天, XML 只返回已发布记录,
+    # 查未来空窗无副作用。否则每个工作日傍晚的新牌价要等到次日才能入库。
+    d_to = today + dt.timedelta(days=7)
     stats = {"start_from": str(d_from), "cny_rows": 0, "usd_rows": 0,
              "er_api_fill": False, "last_value_date": None}
 
-    if d_from > today:
+    if d_from > d_to:
         stats["note"] = "已是最新,无需抓取"
         return stats
 
-    cny = fetch_dynamic(config.CODE_CNY, d_from, today)
-    usd = fetch_dynamic(config.CODE_USD, d_from, today)
+    cny = fetch_dynamic(config.CODE_CNY, d_from, d_to)
+    usd = fetch_dynamic(config.CODE_USD, d_from, d_to)
     stats["cny_rows"] = len(cny)
     stats["usd_rows"] = len(usd)
 
