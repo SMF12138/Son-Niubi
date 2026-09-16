@@ -328,6 +328,9 @@ def resolve_fonts():
 class FloatingPet:
     def __init__(self):
         self.root = tk.Tk()
+        print(f"[pet] 启动 | Python {sys.version.split()[0]} | {sys.platform} | "
+              f"Tcl/Tk {self.root.tk.call('info', 'patchlevel')}",
+              file=sys.stderr, flush=True)
         self.root.title("CNY/RUB 桌宠")
         self.font, self.font_strong, self._strong_real = resolve_fonts()
         self.root.overrideredirect(True)
@@ -393,19 +396,48 @@ class FloatingPet:
         self._draw()
         self._refresh_data()
 
+    def _load_image(self, path):
+        """加载单张角色图, 三级兜底: Tk8.6 原生 PNG -> Pillow -> None。
+
+        macOS 可能链接到系统自带的 Tk 8.5, 其 PhotoImage 不认 PNG,
+        直接加载会抛 TclError 让整个桌宠在 mainloop 前崩溃(表现为桌宠
+        完全不出现); Pillow 兜住所有 Tk 版本。两者都失败时返回 None,
+        卡片照常显示, 只是角色位留空。"""
+        if not path.exists():
+            print(f"[pet] 图片缺失: {path}", file=sys.stderr, flush=True)
+            return None
+        # 1) Tk 原生(Tk 8.6+ 支持 PNG, 零额外依赖)
+        try:
+            full = tk.PhotoImage(file=str(path))
+            if full.height() > full.width():
+                scale = max(1, round(full.height() / IMG_TARGET_H))
+            else:
+                scale = max(1, round(full.width() / IMG_TARGET_W))
+            return full.subsample(scale)
+        except tk.TclError as e:
+            print(f"[pet] Tk 原生读图失败(切换 Pillow): {path.name} | {e}",
+                  file=sys.stderr, flush=True)
+        # 2) Pillow 兜底(兼容 Tk 8.5 及非标准 PNG)
+        try:
+            from PIL import Image, ImageTk
+            im = Image.open(path)
+            if im.height > im.width:
+                nh, nw = IMG_TARGET_H, max(1, round(im.width * IMG_TARGET_H / im.height))
+            else:
+                nw, nh = IMG_TARGET_W, max(1, round(im.height * IMG_TARGET_W / im.width))
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            return ImageTk.PhotoImage(im.resize((nw, nh), resample))
+        except Exception as e:
+            print(f"[pet] Pillow 读图也失败(角色位留空): {path.name} | {e}",
+                  file=sys.stderr, flush=True)
+            return None
+
     def _load_images(self):
         for attr, path in [("img_form1", FORM1), ("img_form2", FORM2)]:
-            if path.exists():
-                full = tk.PhotoImage(file=str(path))
-                if full.height() > full.width():
-                    scale = max(1, round(full.height() / IMG_TARGET_H))
-                else:
-                    scale = max(1, round(full.width() / IMG_TARGET_W))
-                img = full.subsample(scale)
-                setattr(self, attr, img)
+            img = self._load_image(path)
+            setattr(self, attr, img)
+            if img is not None:
                 self._img_refs.append(img)
-            else:
-                setattr(self, attr, None)
 
     def _minimize(self):
         self._save_pos = (self.root.winfo_x(), self.root.winfo_y())
