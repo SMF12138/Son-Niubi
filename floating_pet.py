@@ -397,27 +397,17 @@ class FloatingPet:
         self._refresh_data()
 
     def _load_image(self, path):
-        """加载单张角色图, 三级兜底: Tk8.6 原生 PNG -> Pillow -> None。
+        """加载单张角色图, 优先 Pillow, Tk 原生垫底。
 
-        macOS 可能链接到系统自带的 Tk 8.5, 其 PhotoImage 不认 PNG,
-        直接加载会抛 TclError 让整个桌宠在 mainloop 前崩溃(表现为桌宠
-        完全不出现); Pillow 兜住所有 Tk 版本。两者都失败时返回 None,
-        卡片照常显示, 只是角色位留空。"""
+        历史教训: 用 Tk 自带解码器读大尺寸 RGBA PNG 再 subsample, 在
+        macOS Tk 上虽不报错, 却会把图画坏(通道错位/花屏, 形似"默认图");
+        Windows 又正常, 极具迷惑性。Pillow 的 PNG 解码与缩放在所有平台
+        结果一致, 因此只要 Pillow 可用就全程走它; Tk 原生仅在 Pillow
+        缺失时作为最后手段。两者都失败返回 None, 卡片照显、角色位留空。"""
         if not path.exists():
             print(f"[pet] 图片缺失: {path}", file=sys.stderr, flush=True)
             return None
-        # 1) Tk 原生(Tk 8.6+ 支持 PNG, 零额外依赖)
-        try:
-            full = tk.PhotoImage(file=str(path))
-            if full.height() > full.width():
-                scale = max(1, round(full.height() / IMG_TARGET_H))
-            else:
-                scale = max(1, round(full.width() / IMG_TARGET_W))
-            return full.subsample(scale)
-        except tk.TclError as e:
-            print(f"[pet] Tk 原生读图失败(切换 Pillow): {path.name} | {e}",
-                  file=sys.stderr, flush=True)
-        # 2) Pillow 兜底(兼容 Tk 8.5 及非标准 PNG)
+        # 1) Pillow: 解码 + 高质量缩放一次完成(跨平台一致, 首选)
         try:
             from PIL import Image, ImageTk
             im = Image.open(path)
@@ -428,7 +418,18 @@ class FloatingPet:
             resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
             return ImageTk.PhotoImage(im.resize((nw, nh), resample))
         except Exception as e:
-            print(f"[pet] Pillow 读图也失败(角色位留空): {path.name} | {e}",
+            print(f"[pet] Pillow 读图失败(退回 Tk 原生): {path.name} | {e}",
+                  file=sys.stderr, flush=True)
+        # 2) Tk 原生(Pillow 缺失时垫底; 老版本 Tk 对 PNG 支持有限)
+        try:
+            full = tk.PhotoImage(file=str(path))
+            if full.height() > full.width():
+                scale = max(1, round(full.height() / IMG_TARGET_H))
+            else:
+                scale = max(1, round(full.width() / IMG_TARGET_W))
+            return full.subsample(scale)
+        except tk.TclError as e:
+            print(f"[pet] Tk 原生读图也失败(角色位留空): {path.name} | {e}",
                   file=sys.stderr, flush=True)
             return None
 

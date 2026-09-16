@@ -1,4 +1,4 @@
-"""验证 _load_image 三级兜底: 原生 / TclError 走 Pillow / 缺失不崩。"""
+"""验证 _load_image 的加载策略: Pillow 首选 / Tk 原生垫底 / 缺失不崩。"""
 import sys
 import tkinter as tk
 import unittest
@@ -10,7 +10,7 @@ import floating_pet as fp
 
 
 class _Stub:
-    """绕过 Tk 真实窗口的桩实例。"""
+    """绕过 FloatingPet.__init__ 的桩实例。"""
 
 
 class ImageLoadFallbackTest(unittest.TestCase):
@@ -26,57 +26,47 @@ class ImageLoadFallbackTest(unittest.TestCase):
 
     def setUp(self):
         self.pet = _Stub()
-        # 绑定真实方法
         self.pet._load_image = fp.FloatingPet._load_image.__get__(self.pet)
 
-    def test_pillow_path_when_tk_rejects_png(self):
-        """模拟 Tk 8.5: tk.PhotoImage(file=) 抛 TclError, 应走 Pillow 返回图片。
-
-        注意 ImageTk.PhotoImage 内部也会无参调用 tk.PhotoImage() 创建空图,
-        所以只拦截带 file= 的"读文件"调用。"""
-        real_photo = tk.PhotoImage
-
-        def fake_photo(*a, **kw):
-            if kw.get("file"):
-                raise tk.TclError("couldn't recognize data in image file")
-            return real_photo(*a, **kw)
-
-        with mock.patch.object(fp.tk, "PhotoImage", fake_photo):
-            img = self.pet._load_image(fp.FORM1)
-        self.assertIsNotNone(img, "Pillow 兜底必须返回图片")
-        self.assertLessEqual(img.height(), fp.IMG_TARGET_H + 2)
+    def test_pillow_primary_returns_correct_size(self):
+        """Pillow 可用时首选它, 返回按目标尺寸缩放的图(不经过 Tk 解码器)。"""
+        img = self.pet._load_image(fp.FORM1)
+        self.assertIsNotNone(img)
+        self.assertLessEqual(img.height(), fp.IMG_TARGET_H)
 
     def test_pillow_form2(self):
-        real_photo = tk.PhotoImage
-
-        def fake_photo(*a, **kw):
-            if kw.get("file"):
-                raise tk.TclError("png unsupported")
-            return real_photo(*a, **kw)
-
-        with mock.patch.object(fp.tk, "PhotoImage", fake_photo):
-            img = self.pet._load_image(fp.FORM2)
+        img = self.pet._load_image(fp.FORM2)
         self.assertIsNotNone(img)
-        self.assertLessEqual(img.width(), fp.IMG_TARGET_W + 2)
+        self.assertLessEqual(img.width(), fp.IMG_TARGET_W)
 
-    def test_missing_file_returns_none(self):
-        result = self.pet._load_image(Path("data/pet/__nope__.png"))
-        self.assertIsNone(result)
+    def test_falls_back_to_tk_when_pillow_missing(self):
+        """Pillow 导入失败时退回 Tk 原生路径(用桩模拟成功)。"""
+        import builtins
+        real_import = builtins.__import__
 
-    def test_native_path_when_tk_supports_png(self):
-        """Tk 8.6 正常路径: 不依赖 Pillow 也能返回 PhotoImage 桩。"""
+        def fake_import(name, *a, **kw):
+            if name.startswith("PIL"):
+                raise ImportError("simulated no pillow")
+            return real_import(name, *a, **kw)
+
         class FakePhoto:
-            def __init__(self, file):
-                self._h, self._w = 1448, 1086
+            def __init__(self, file=None):
+                self._w, self._h = 1254, 1254
             def width(self):
                 return self._w
             def height(self):
                 return self._h
             def subsample(self, n):
-                return ("subsampled", n)
-        with mock.patch.object(fp.tk, "PhotoImage", FakePhoto):
-            img = self.pet._load_image(fp.FORM1)
-        self.assertEqual(img[0], "subsampled")
+                return ("tk-subsampled", n)
+
+        with mock.patch.object(builtins, "__import__", fake_import), \
+             mock.patch.object(fp.tk, "PhotoImage", FakePhoto):
+            img = self.pet._load_image(fp.FORM2)
+        self.assertEqual(img[0], "tk-subsampled")
+
+    def test_missing_file_returns_none(self):
+        result = self.pet._load_image(Path("data/pet/__nope__.png"))
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":
