@@ -212,7 +212,6 @@ def create_app() -> Flask:
 
         return jsonify({
             "as_of": df.index[-1].date().isoformat(),
-            "refreshed_at": fc.get("refreshed_at") if fc else None,
             "current_rate": float(df["cny_rub"].iloc[-1]),
             "n": n,
             "hist": hist,

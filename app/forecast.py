@@ -5,7 +5,6 @@
 """
 import json
 import math
-from datetime import datetime
 
 import numpy as np
 
@@ -173,7 +172,6 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
         fc = {
             "N": N,
             "as_of": df.index[-1].isoformat(),
-            "refreshed_at": datetime.now().isoformat(),
             "base_rate": round(cur_rate, 4),
             "forecast_dates": [d.isoformat() for d in fdates],
             "forecast": forecast,
