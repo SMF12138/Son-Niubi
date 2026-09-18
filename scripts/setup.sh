@@ -177,9 +177,38 @@ chmod +x setup.command start.command stop.command start.sh stop.sh scripts/*.sh 
 # 关桌宠会自动杀后台(v2.0.9 起), 不再需要"停止"快捷方式; stop.sh 仍保留
 # 供桌宠崩溃时手动兜底。
 if [ -d "$HOME/Desktop" ]; then
-    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$HOME/Desktop/Son NiuBi.command" 2>/dev/null && \
-    chmod +x "$HOME/Desktop/Son NiuBi.command" 2>/dev/null && \
-    echo "Desktop launcher created: 'Son NiuBi.command'" || \
+    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$HOME/Desktop/Son NiuBi.command" 2>/dev/null
+    chmod +x "$HOME/Desktop/Son NiuBi.command" 2>/dev/null
+    echo "Desktop launcher created: 'Son NiuBi.command'"
+
+    # 自定义图标: Mac 上 .command 默认是终端图标, 用 data/tubiao.png 生成
+    # .icns 并通过 Finder 赋给桌面文件。失败不影响使用(只是没自定义图标)。
+    ICON_SRC="$PWD/data/tubiao.png"
+    if [ -f "$ICON_SRC" ]; then
+        ICONSET="$(mktemp -d)/sonniubi.iconset"
+        mkdir -p "$ICONSET"
+        sips -z 16 16     "$ICON_SRC" --out "$ICONSET/icon_16x16.png"     >/dev/null 2>&1
+        sips -z 32 32     "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"  >/dev/null 2>&1
+        sips -z 32 32     "$ICON_SRC" --out "$ICONSET/icon_32x32.png"     >/dev/null 2>&1
+        sips -z 64 64     "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"  >/dev/null 2>&1
+        sips -z 128 128   "$ICON_SRC" --out "$ICONSET/icon_128x128.png"   >/dev/null 2>&1
+        sips -z 256 256   "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png" >/dev/null 2>&1
+        sips -z 256 256   "$ICON_SRC" --out "$ICONSET/icon_256x256.png"   >/dev/null 2>&1
+        sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null 2>&1
+        sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_512x512.png"   >/dev/null 2>&1
+        sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null 2>&1
+        ICNS="$(dirname "$ICONSET")/sonniubi.icns"
+        if iconutil -c icns "$ICONSET" -o "$ICNS" >/dev/null 2>&1 && [ -f "$ICNS" ]; then
+            # 优先用 fileicon(brew 装过的话更稳), 否则走 Finder AppleScript
+            if command -v fileicon >/dev/null 2>&1; then
+                fileicon set "$HOME/Desktop/Son NiuBi.command" "$ICNS" >/dev/null 2>&1
+            else
+                osascript -e "tell application \"Finder\" to set icon of (POSIX file \"$HOME/Desktop/Son NiuBi.command\" as alias) to (POSIX file \"$ICNS\" as alias)" >/dev/null 2>&1
+            fi
+        fi
+        rm -rf "$(dirname "$ICONSET")"
+    fi
+else
     echo "(桌面启动器创建失败, 不影响使用)"
 fi
 
