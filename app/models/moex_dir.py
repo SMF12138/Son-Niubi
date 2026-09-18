@@ -404,7 +404,8 @@ def run_direction_backtest(df, oil_df=None, sentiment_df=None, rate_df=None):
             "moex_confident_accuracy": round(mx_cc / mx_ct, 4) if mx_ct else 0,
             "moex_confident_windows": mx_ct,
         }
-    return {"meta": {"as_of": df.index[-1].isoformat(), "rows": m,
+    return {"meta": {"as_of": min(df.index[-1].date(), config.msk_today()).isoformat(),
+                     "rows": m,
                      "model": "MoexDirectionPredictor",
                      "calibration": "expanding_window_oos",
                      "confident_threshold": thr},

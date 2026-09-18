@@ -171,7 +171,9 @@ def save_forecasts(df, oil_df=None, sentiment_df=None, rate_df=None) -> None:
 
         fc = {
             "N": N,
-            "as_of": df.index[-1].isoformat(),
+            # CBR 傍晚发布次一交易日牌价, df 末行日期可能是今天+1; 展示给用户
+            # 时封顶为 MSK 今天, 否则"截至"出现未来日期会被误判为时区错乱。
+            "as_of": min(df.index[-1].date(), config.msk_today()).isoformat(),
             "base_rate": round(cur_rate, 4),
             "forecast_dates": [d.isoformat() for d in fdates],
             "forecast": forecast,

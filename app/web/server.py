@@ -27,7 +27,8 @@ def create_app() -> Flask:
         df: pd.DataFrame = store.load_rates()
         tail = df.tail(max(limit, 30))
         return jsonify({
-            "as_of": df.index[-1].isoformat() if len(df) else None,
+            "as_of": (min(df.index[-1].date(), config.msk_today()).isoformat()
+                      if len(df) else None),
             "dates": [d.date().isoformat() for d in tail.index],
             "cny": [float(v) for v in tail["cny_rub"]],
             "usd": [None if pd.isna(v) else float(v) for v in tail["usd_rub"]],
@@ -87,7 +88,7 @@ def create_app() -> Flask:
                 "reliable": N in (60, 90),
             })
         return jsonify({
-            "as_of": df.index[-1].isoformat(),
+            "as_of": min(df.index[-1].date(), config.msk_today()).isoformat(),
             "base_rate": round(float(close[i]), 4),
             "any_trigger": any_trigger,
             "threshold_sigma": 2.0,
@@ -211,7 +212,7 @@ def create_app() -> Flask:
         from app.models.moex_dir import calibration_status
 
         return jsonify({
-            "as_of": df.index[-1].date().isoformat(),
+            "as_of": min(df.index[-1].date(), config.msk_today()).isoformat(),
             "current_rate": float(df["cny_rub"].iloc[-1]),
             "n": n,
             "hist": hist,

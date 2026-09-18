@@ -527,7 +527,8 @@ def run_longhorizon_backtest(df, moex_map: dict, oil_df=None) -> dict:
         "min_bucket_n": LONG_MIN_BUCKET_N,
         "policies": HORIZON_POLICY,
         "params": {"rev_ma_win": REV_MA_WIN, "vol_win": VOL_WIN, "z_win": Z_WIN},
-        "meta": {"as_of": df.index[-1].isoformat(), "rows": int(m)},
+        "meta": {"as_of": min(df.index[-1].date(), config.msk_today()).isoformat(),
+                 "rows": int(m)},
         "horizons": horizons,
     }
     return result

@@ -1,5 +1,15 @@
 """全局配置:路径、数据源、回测参数。"""
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+# ---- 时区 ----
+# CBR 牌价按莫斯科工作日发布(傍晚发布次一交易日牌价, 日期落在未来)。
+# 显示层用 MSK 的"今天"封顶, 避免把未来牌价日期当"截至"展示给用户。
+MSK = timezone(timedelta(hours=3))
+
+
+def msk_today() -> date:
+    return datetime.now(MSK).date()
 
 # ---- 路径 ----
 ROOT = Path(__file__).resolve().parent.parent

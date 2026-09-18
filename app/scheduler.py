@@ -9,14 +9,14 @@ serve 进程存活期间:
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app import config
 from app.data import store
 
 log = logging.getLogger("scheduler")
 
-MSK = timezone(timedelta(hours=3))
+MSK = config.MSK
 UPDATE_HOUR = 9
 UPDATE_MINUTE = 0
 FAST_INTERVAL = 60     # 快层间隔(秒), 可改为更小值
