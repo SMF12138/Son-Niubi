@@ -177,7 +177,7 @@ function renderHero(d) {
         <div class="hero-stat">
           <span class="stat-label">数据截至</span>
           <span class="stat-value" style="font-size:15px">${d.as_of}</span>
-          <span class="stat-sub">俄央行官方牌价</span>
+          <span class="stat-sub">${d.refreshed_at ? "刷新于 " + d.refreshed_at.slice(11, 19) : "俄央行官方牌价"}</span>
         </div>
       </div>
     </div>`;

@@ -149,7 +149,14 @@ def cmd_serve(args):
             log.warning("历史数据不足, 跳过回测/校准/预测(%s); 看板仍会启动", e)
     else:
         log.info("数据无更新, 跳过回测(产物已最新)")
-    from app.web.server import create_app
+        # 即使数据没变, 也重算一次预测: 更新 refreshed_at 时间戳,
+        # 让前端能看到系统在刷新(而不是误以为"卡在昨天")。
+        try:
+            from app import forecast as fc
+            df, oil_df, sent_df, rate_df = _load_all()
+            fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
+        except Exception as e:
+            log.warning("启动预测刷新失败(用旧产物): %s", e)
     app = create_app()
     # 启动内置每日自动更新调度器: 系统自带更新能力, 不依赖外部调度
     from app import scheduler
