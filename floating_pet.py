@@ -382,6 +382,7 @@ class FloatingPet:
         self._img_refs = []
         self._hover = None
         self._ball_imgs = {}         # {涨跌点色: 已光栅化的悬浮球贴图}
+        self._voice_proc = None      # afplay/aplay 子进程, 切换前先杀旧的
 
         self.img_form1 = None
         self.img_form2 = None
@@ -522,6 +523,7 @@ class FloatingPet:
                         "否则它会继续每小时更新数据。")
                 except Exception:
                     pass
+            self._stop_voice_proc()
             self.root.destroy()
             return
         if bid == "min":
@@ -609,20 +611,35 @@ class FloatingPet:
             return
         try:
             if IS_MAC:
-                subprocess.Popen(["afplay", str(voice)],
-                                  stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL)
+                self._stop_voice_proc()
+                self._voice_proc = subprocess.Popen(
+                    ["afplay", str(voice)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL)
             elif IS_WIN:
                 import winsound
                 winsound.PlaySound(
                     str(voice), winsound.SND_FILENAME | winsound.SND_ASYNC)
             else:
                 # Linux: 尝试 aplay
-                subprocess.Popen(["aplay", "-q", str(voice)],
-                                  stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL)
+                self._stop_voice_proc()
+                self._voice_proc = subprocess.Popen(
+                    ["aplay", "-q", str(voice)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL)
         except Exception:
             pass
+
+    def _stop_voice_proc(self):
+        """杀掉上一个声音子进程, 避免新旧 afplay 抢音频设备导致静默失败。"""
+        p = self._voice_proc
+        if p is not None and p.poll() is None:
+            try:
+                p.kill()
+                p.wait(timeout=1)
+            except Exception:
+                pass
+        self._voice_proc = None
 
     def _horizon_file(self):
         return FORECAST_FILES.get(self.horizon, FORECAST_FILE)
