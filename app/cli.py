@@ -157,6 +157,7 @@ def cmd_serve(args):
             fc.save_forecasts(df, oil_df=oil_df, sentiment_df=sent_df, rate_df=rate_df)
         except Exception as e:
             log.warning("启动预测刷新失败(用旧产物): %s", e)
+    from app.web.server import create_app
     app = create_app()
     # 启动内置每日自动更新调度器: 系统自带更新能力, 不依赖外部调度
     from app import scheduler
