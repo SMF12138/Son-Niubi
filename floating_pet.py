@@ -12,10 +12,12 @@
 - 每 5s 读 forecast_*.json 刷新数据
 - 日期块切换 7/30/60/90 日 horizon，数据联动
 """
+import atexit
 import datetime as dt
 import json
 import math
 import platform
+import signal
 import subprocess
 import sys
 import tkinter as tk
@@ -401,6 +403,22 @@ class FloatingPet:
         self._draw()
         self._refresh_data()
 
+        # 退出兜底(三重): 朋友不关机, Flask 残留会越积越多占 8000 端口。
+        # 1) atexit: 正常退出(mainloop 结束/Python 退出)必跑
+        # 2) WM_DELETE_WINDOW: 窗口关闭事件(含 macOS 红点)
+        # 3) SIGTERM/SIGINT: 外部 kill / Ctrl-C
+        # 关闭按钮走 _on_close 会主动杀一次, 这里再兜一次(pkill 重复无副作用)。
+        atexit.register(self._kill_backend)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        for sig in (getattr(signal, "SIGTERM", None),
+                    getattr(signal, "SIGINT", None)):
+            if sig is not None:
+                try:
+                    signal.signal(sig, lambda *a: (self._kill_backend(),
+                                                   sys.exit(0)))
+                except (OSError, ValueError):
+                    pass   # 非主线程/平台不支持时跳过, atexit 仍兜底
+
     def _load_image(self, path):
         """加载单张角色图, 优先 Pillow, Tk 原生垫底。
 
@@ -496,39 +514,7 @@ class FloatingPet:
 
         bid = self._hit_button(e.x, e.y)
         if bid == "close":
-            kill_failed = False
-            try:
-                if IS_MAC or not IS_WIN:
-                    r = subprocess.run(
-                        ["pkill", "-f", "app.cli serve"],
-                        timeout=5, capture_output=True)
-                    # pkill: 0=已杀, 1=本就无匹配进程(不算失败), 其余才是失败
-                    kill_failed = r.returncode not in (0, 1)
-                else:
-                    r = subprocess.run(
-                        ["powershell", "-NoProfile", "-Command",
-                         "Get-CimInstance Win32_Process | Where-Object { "
-                         "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
-                         "-and $_.CommandLine -match 'app.cli serve' } "
-                         "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                        timeout=5, capture_output=True, text=True)
-                    # 无匹配时 PowerShell 管道返回 0; 非 0 才是真失败
-                    kill_failed = r.returncode != 0
-            except Exception:
-                kill_failed = True   # 超时/无 powershell 等
-            if kill_failed:
-                # 不再静默吞掉: 明确告知用户后台可能残留, 给出手动处理路径
-                try:
-                    from tkinter import messagebox
-                    messagebox.showwarning(
-                        "服务未能自动关闭",
-                        "后台汇率服务(app.cli serve)未能自动结束,\n"
-                        "请在任务管理器中手动关闭 python.exe / pythonw.exe,\n"
-                        "否则它会继续每小时更新数据。")
-                except Exception:
-                    pass
-            self._stop_voice_proc()
-            self.root.destroy()
+            self._on_close()
             return
         if bid == "min":
             self._minimize()
@@ -644,6 +630,43 @@ class FloatingPet:
             except Exception:
                 pass
         self._voice_proc = None
+
+    def _kill_backend(self) -> bool:
+        """杀掉本夹启动的 Flask 服务(app.cli serve)。
+        返回 True=已杀或本就没有, False=尝试失败(可能残留)。
+        关闭桌宠时必调: 否则 Flask 会一直占着 8000 端口, 朋友不关机时
+        残留进程越积越多(Cmd+Q/Dock退出都不经过关闭按钮)。"""
+        try:
+            if IS_MAC or not IS_WIN:
+                r = subprocess.run(["pkill", "-f", "app.cli serve"],
+                                   timeout=5, capture_output=True)
+                return r.returncode in (0, 1)
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_Process | Where-Object { "
+                 "($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') "
+                 "-and $_.CommandLine -match 'app.cli serve' } "
+                 "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                timeout=5, capture_output=True, text=True)
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def _on_close(self):
+        """统一关闭入口: 杀 Flask + 杀声音 + 销毁窗口。
+        关闭按钮、原生窗口×、Cmd+Q 都走这里。"""
+        if not self._kill_backend():
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "服务未能自动关闭",
+                    "后台汇率服务(app.cli serve)未能自动结束,\n"
+                    "请在任务管理器中手动关闭 python.exe / pythonw.exe,\n"
+                    "否则它会继续每小时更新数据。")
+            except Exception:
+                pass
+        self._stop_voice_proc()
+        self.root.destroy()
 
     def _horizon_file(self):
         return FORECAST_FILES.get(self.horizon, FORECAST_FILE)
