@@ -142,18 +142,18 @@ if (-not (Test-Path $vendor)) {
 
 & $py -c "import flask, pandas, numpy; print('Dependencies OK')"
 
-# 桌面快捷方式(失败不阻塞安装): 启动=桌宠+看板, 停止=关服务
+# 桌面快捷方式(失败不阻塞安装): 启动=桌宠+看板。
+# 关桌宠会自动杀后台(v2.0.9 起), 不再需要"停止"快捷方式; stop.bat 仍保留
+# 供桌宠崩溃时手动兜底。
 try {
     $ws = New-Object -ComObject WScript.Shell
     $desktop = [Environment]::GetFolderPath('Desktop')
-    foreach ($pair in @(@('Son NiuBi 启动', 'start.vbs'), @('Son NiuBi 停止', 'stop.bat'))) {
-        $lnk = $ws.CreateShortcut((Join-Path $desktop "$($pair[0]).lnk"))
-        $lnk.TargetPath = Join-Path $root $pair[1]
-        $lnk.WorkingDirectory = $root
-        $lnk.IconLocation = Join-Path $root 'data\tubiao.ico'
-        $lnk.Save()
-    }
-    Write-Host "Desktop shortcuts created: 'Son NiuBi 启动' / 'Son NiuBi 停止'"
+    $lnk = $ws.CreateShortcut((Join-Path $desktop 'Son NiuBi 启动.lnk'))
+    $lnk.TargetPath = Join-Path $root 'start.vbs'
+    $lnk.WorkingDirectory = $root
+    $lnk.IconLocation = Join-Path $root 'data\tubiao.ico'
+    $lnk.Save()
+    Write-Host "Desktop shortcut created: 'Son NiuBi 启动'"
 } catch {
     Write-Host "(桌面快捷方式创建失败, 不影响使用: $($_.Exception.Message))"
 }
