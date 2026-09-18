@@ -229,6 +229,9 @@ def create_app() -> Flask:
             "db_rows": len(df),
             "db_last_date": df.index[-1].isoformat() if len(df) else None,
             "official_daily_asof": _official_asof(),
+            # 安装目录身份: start 脚本据此判断 8000 上的服务是否来自本文件夹
+            # (多版本文件夹并存时, 桌宠必须连本文件夹的服务, 否则读到冻结的旧预测)
+            "app_root": str(config.ROOT),
         })
 
     return app

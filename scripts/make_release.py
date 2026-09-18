@@ -10,6 +10,7 @@
 直接打包会全部 644, 导致 Mac 上 ./start.sh Permission denied)。
 """
 import shutil
+import sqlite3
 import sys
 import tarfile
 import zipfile
@@ -33,6 +34,17 @@ MAC_ONLY_SUFFIX = {".sh", ".command"}
 EXEC_SUFFIX = MAC_ONLY_SUFFIX
 
 
+# 当日产物/机器私有文件: 绝不打进分发包。
+# forecast_*.json 冻结打包时刻的日期与置信度 —— 多版本文件夹并存时,
+# 若本文件夹服务没启动, 桌宠会永远显示这些冻结数字(v2.0.7 前的真实故障)。
+# moex_live.json 是我机器上的过期实时价; pet_config.json 带我的窗口坐标。
+STALE_DATA_FILES = [
+    "forecast_7.json", "forecast_30.json",
+    "forecast_60.json", "forecast_90.json",
+    "moex_live.json", "pet_config.json",
+]
+
+
 def build_stage(tmp: Path) -> Path:
     if tmp.exists():
         shutil.rmtree(tmp)
@@ -40,6 +52,20 @@ def build_stage(tmp: Path) -> Path:
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
     for d in ["app", "data", "tests"]:
         shutil.copytree(SRC / d, stage / d, ignore=ignore)
+    for name in STALE_DATA_FILES:
+        p = stage / "data" / name
+        if p.exists():
+            p.unlink()
+    # rates.db 保留历史汇率, 但清空开发机的预测留档 —— 它是"本机前瞻成绩单",
+    # 我机器上的测试记录不应污染用户的复盘统计。
+    db = stage / "data" / "rates.db"
+    if db.exists():
+        con = sqlite3.connect(str(db))
+        try:
+            con.execute("DELETE FROM prediction_ledger")
+            con.commit()
+        finally:
+            con.close()
     for f in COMMON_FILES:
         shutil.copy2(SRC / f, stage / f)
     (stage / "scripts").mkdir()
@@ -54,6 +80,13 @@ def make_mac(stage: Path, out: Path) -> int:
     for p in mac.rglob("*"):
         if p.is_file() and p.suffix in WIN_ONLY_SUFFIX:
             p.unlink()
+    # Windows 工作区可能带 CRLF(git autocrlf): Mac bash 执行含 \r 的脚本会报
+    # '\r' 命令找不到 / bad interpreter, 打 Mac 包前统一把 shell 脚本转 LF。
+    for p in mac.rglob("*"):
+        if p.is_file() and p.suffix in MAC_ONLY_SUFFIX:
+            raw = p.read_bytes()
+            if b"\r" in raw:
+                p.write_bytes(raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
     if out.exists():
         out.unlink()
     n = 0
@@ -114,6 +147,11 @@ def main() -> None:
                       "Son NiuBi/stop.sh", "Son NiuBi/scripts/setup.sh"]:
             assert modes.get(probe) == 0o755, f"{probe} 缺执行位: {modes.get(probe)}"
         assert any(m.startswith("Son NiuBi/data/") for m in modes), "缺 data/"
+        start_sh_bytes = tf.extractfile("Son NiuBi/start.sh").read()
+        assert b"\r" not in start_sh_bytes, "start.sh 含 CR 字符, Mac bash 无法执行"
+        for banned in ["forecast_7.json", "forecast_30.json", "forecast_60.json",
+                       "forecast_90.json", "moex_live.json", "pet_config.json"]:
+            assert f"Son NiuBi/data/{banned}" not in modes, f"冻结文件混入包: {banned}"
     with zipfile.ZipFile(out_zip) as zf:
         names = zf.namelist()
         assert any(x.endswith("scripts\\setup.ps1") or x.endswith("scripts/setup.ps1") for x in names)

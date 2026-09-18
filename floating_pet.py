@@ -40,6 +40,10 @@ VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
 # MOEX 实时市场价(Flask 快层每 60s 写一次), 仅供桌宠显示, 不参与预测
 LIVE_FILE = ROOT / "data" / "moex_live.json"
 LIVE_STALE_SEC = 600        # 超过 10 分钟没更新视为失效, 回退官方牌价
+# 快层每 60s 重写 forecast。超过此时长没更新 = 本文件夹没有服务在写数据
+# (多版本文件夹并存、端口被旧安装占住时会发生)。继续显示等于拿冻结的旧
+# 日期/旧置信度骗人, 不如显示"等待数据"。
+FORECAST_STALE_SEC = 600
 
 # 透明键色
 TRANSPARENT_KEY = "#FF00FE"  # 仅 Windows; macOS 不需要
@@ -648,13 +652,21 @@ class FloatingPet:
         """只读文件, 不重排定时器。供 _set_horizon 复用。"""
         try:
             f = self._horizon_file()
-            if f.exists():
-                mtime = f.stat().st_mtime
-                if mtime != self.last_mtime:
-                    self.last_mtime = mtime
-                    obj = json.loads(f.read_text(encoding="utf-8"))
-                    if isinstance(obj, dict):    # 顶层非对象则丢弃, 防下游 .get 崩
-                        self.data = obj
+            if not f.exists():
+                # 刚解压、服务尚未写出首个预测: 进入等待态而不是沿用上一周期
+                self.data = {}
+                return
+            mtime = f.stat().st_mtime
+            # 陈旧保护: 文件超过 10 分钟没被重写, 视为"无本文件夹服务在更新",
+            # 主动清空 —— 服务恢复写入后(本文件 mtime 一变)自动恢复显示。
+            if dt.datetime.now().timestamp() - mtime > FORECAST_STALE_SEC:
+                self.data = {}
+                return
+            if mtime != self.last_mtime:
+                self.last_mtime = mtime
+                obj = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(obj, dict):    # 顶层非对象则丢弃, 防下游 .get 崩
+                    self.data = obj
         except Exception:
             pass
 
