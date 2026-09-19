@@ -298,6 +298,20 @@ class MoexDirectionPredictor:
             # "确认≥2"相对"0-1"零增量(60.1% vs 59.7%), "≥3"在 z00 桶有效(63.4% vs
             # 50.9%)但在 z05 桶反向(69.3% vs 92.3%, 小样本), 增量不稳定且接线等于
             # 新一轮同数据挖规则, 故把握度严格等于该 |z| 桶的(动态)校准命中率。
+            #
+            # 桶内微调: 同一桶内 |z| 越大信号越强, 向更高桶命中率方向内插一小段
+            # (系数 0.25), 让置信度随 |z| 轻微浮动而不是同桶恒等。锚点仍是本桶校准
+            # 命中率, 偏离幅度小(±~1.5%), 不违反校准口径诚实性。
+            _NEXT = {"z00": ("z05", 0.0, 0.5),
+                     "z05": ("z10", 0.5, 1.0),
+                     "z10": ("z15", 1.0, 1.5),
+                     "z15": (None, 1.5, None)}
+            nxt = _NEXT.get(bucket_key)
+            if nxt and nxt[0] is not None and nxt[2] is not None:
+                nxt_key, lo, hi = nxt
+                pos = min(max((az - lo) / (hi - lo), 0.0), 1.0)
+                nxt_conf = tbl.get(nxt_key, conf)
+                conf = conf + (nxt_conf - conf) * pos * 0.25
             conf = max(0.5, min(conf, cap))
             pu = conf if pred == 1 else 1 - conf
             return {"prediction": pred, "confidence": round(conf, 3),
