@@ -199,12 +199,22 @@ if [ -d "$HOME/Desktop" ]; then
         sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null 2>&1
         ICNS="$(dirname "$ICONSET")/sonniubi.icns"
         if iconutil -c icns "$ICONSET" -o "$ICNS" >/dev/null 2>&1 && [ -f "$ICNS" ]; then
-            # 优先用 fileicon(brew 装过的话更稳), 否则走 Finder AppleScript
+            # 赋图标优先级: fileicon(brew) > 系统Python+AppKit(最稳) > Finder AppleScript
+            TARGET="$HOME/Desktop/Son NiuBi.command"
             if command -v fileicon >/dev/null 2>&1; then
-                fileicon set "$HOME/Desktop/Son NiuBi.command" "$ICNS" >/dev/null 2>&1
+                fileicon set "$TARGET" "$ICNS" >/dev/null 2>&1
+            elif [ -x /usr/bin/python3 ]; then
+                /usr/bin/python3 - "$TARGET" "$ICNS" <<'PYEOF' >/dev/null 2>&1
+import AppKit, sys
+img = AppKit.NSImage.alloc().initWithContentsOfFile_(sys.argv[2])
+if img is not None:
+    AppKit.NSWorkspace.sharedWorkspace().setIcon_forFile_options_(img, sys.argv[1], 0)
+PYEOF
             else
-                osascript -e "tell application \"Finder\" to set icon of (POSIX file \"$HOME/Desktop/Son NiuBi.command\" as alias) to (POSIX file \"$ICNS\" as alias)" >/dev/null 2>&1
+                osascript -e "tell application \"Finder\" to set icon of (POSIX file \"$TARGET\" as alias) to (POSIX file \"$ICNS\" as alias)" >/dev/null 2>&1
             fi
+            # 刷新 Finder 图标缓存
+            killall Finder >/dev/null 2>&1 || true
         fi
         rm -rf "$(dirname "$ICONSET")"
     fi

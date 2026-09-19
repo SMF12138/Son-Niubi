@@ -921,7 +921,16 @@ class FloatingPet:
         as_of = str(self.data.get("as_of") or "")[:10]
         if live_price:
             rate = live_price
-            as_of = str(self.live.get("time") or "")
+            live_date = str(self.live.get("date") or "")
+            live_time = str(self.live.get("time") or "")
+            # MOEX 休市(周末/收盘后)时, time 停在上一交易日最后一根 K 线。
+            # 若只显示 HH:MM 会被误以为"时间凝固"; 跨日时补 MM-DD 前缀。
+            # live_date 是 MOEX(MSK) 的 K 线日期, 与 MSK 今天比较。
+            msk_today = (dt.datetime.utcnow() + dt.timedelta(hours=3)).date()
+            if live_date and live_date != msk_today.isoformat():
+                as_of = f"{live_date[5:]} {live_time}"   # 09-18 18:50
+            else:
+                as_of = live_time
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
