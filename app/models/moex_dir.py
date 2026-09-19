@@ -299,19 +299,24 @@ class MoexDirectionPredictor:
             # 50.9%)但在 z05 桶反向(69.3% vs 92.3%, 小样本), 增量不稳定且接线等于
             # 新一轮同数据挖规则, 故把握度严格等于该 |z| 桶的(动态)校准命中率。
             #
-            # 桶内微调: 同一桶内 |z| 越大信号越强, 向更高桶命中率方向内插一小段
-            # (系数 0.25), 让置信度随 |z| 轻微浮动而不是同桶恒等。锚点仍是本桶校准
-            # 命中率, 偏离幅度小(±~1.5%), 不违反校准口径诚实性。
-            _NEXT = {"z00": ("z05", 0.0, 0.5),
-                     "z05": ("z10", 0.5, 1.0),
-                     "z10": ("z15", 1.0, 1.5),
-                     "z15": (None, 1.5, None)}
-            nxt = _NEXT.get(bucket_key)
-            if nxt and nxt[0] is not None and nxt[2] is not None:
-                nxt_key, lo, hi = nxt
-                pos = min(max((az - lo) / (hi - lo), 0.0), 1.0)
-                nxt_conf = tbl.get(nxt_key, conf)
-                conf = conf + (nxt_conf - conf) * pos * 0.25
+            # 全局连续插值: 把 4 个桶命中率当作控制点(|z|=阈值, 命中率),
+            # 任意 |z| 在相邻两控制点间线性插值, 消除桶边界跳变(如 63% 直接跳到
+            # 71% 的断层)。控制点锚点仍是校准命中率, 插值是对校准的平滑而非硬编码。
+            _PTS = [(0.0, tbl.get("z00", 0.6)),
+                    (0.5, tbl.get("z05", 0.6)),
+                    (1.0, tbl.get("z10", 0.6)),
+                    (1.5, tbl.get("z15", 0.6))]
+            if az <= _PTS[0][0]:
+                conf = _PTS[0][1]
+            elif az >= _PTS[-1][0]:
+                conf = _PTS[-1][1]
+            else:
+                for i in range(len(_PTS) - 1):
+                    x0, y0 = _PTS[i]
+                    x1, y1 = _PTS[i + 1]
+                    if x0 <= az < x1:
+                        conf = y0 + (y1 - y0) * (az - x0) / (x1 - x0)
+                        break
             conf = max(0.5, min(conf, cap))
             pu = conf if pred == 1 else 1 - conf
             return {"prediction": pred, "confidence": round(conf, 3),
