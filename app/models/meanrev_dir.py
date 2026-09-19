@@ -65,31 +65,24 @@ class MeanRevDirectionPredictor:
                     if mr_pred == usd_pred:
                         confirms += 1
 
-        # 强信号: 直接采用均值回复方向, 高置信
-        if strength >= 1.0:
-            # 置信度 = 该信号的实测命中率(校准表), 不再叠加无实测依据的
-            # strength*0.01 / confirm+0.02 人为加分(旧实现可一路加到 0.82 上限)。
-            cal = conf_override if conf_override is not None else self._meanrev_conf
-            base_conf = cal.get(N, _DEFAULT_MEANREV.get(N, 0.55))
-            conf = base_conf
-            p_up = conf if score > 0 else 1 - conf
-            return {"prediction": 1 if p_up > 0.5 else 0,
-                    "confidence": round(conf, 3),
-                    "prob_up": round(p_up, 3),
-                    "prob_down": round(1 - p_up, 3),
-                    "signal": "meanrev_strong",
-                    "confirms": confirms, "horizon": N}
-
-        # 中等信号: 方向采用分数, 置信度温和
-        p_up = 0.5 + 0.06 * np.clip(score, -2.0, 2.0)
+        # 置信度随 strength 连续过渡: 弱信号用公式 0.5+0.06*score, 强信号用
+        # 校准命中率 base_conf, 两者在 strength 上线性混合消除 strength=1.0 边界跳变。
+        cal = conf_override if conf_override is not None else self._meanrev_conf
+        base_conf = cal.get(N, _DEFAULT_MEANREV.get(N, 0.55))
+        p_up_med = 0.5 + 0.06 * np.clip(score, -2.0, 2.0)
         if confirms >= 1:
-            p_up = 0.5 + (p_up - 0.5) * 1.2  # 确认后放大信号
-        p_up = float(np.clip(p_up, 0, 1))
+            p_up_med = 0.5 + (p_up_med - 0.5) * 1.2
+        p_up_med = float(np.clip(p_up_med, 0, 1))
+        med_conf = max(p_up_med, 1 - p_up_med)
+        # strength=1 处完全用公式值, strength>=2 处完全用校准值, 中间线性混合
+        blend = min(max((strength - 1.0) / 1.0, 0.0), 1.0)
+        conf = med_conf * (1.0 - blend) + base_conf * blend
+        p_up = p_up_med if strength < 1.0 else (conf if score > 0 else 1 - conf)
         return {"prediction": 1 if p_up > 0.5 else 0,
-                "confidence": round(max(p_up, 1 - p_up), 3),
+                "confidence": round(conf, 3),
                 "prob_up": round(p_up, 3),
                 "prob_down": round(float(1 - p_up), 3),
-                "signal": "meanrev_medium",
+                "signal": "meanrev_strong" if strength >= 1.0 else "meanrev_medium",
                 "confirms": confirms, "horizon": N}
 
     @staticmethod

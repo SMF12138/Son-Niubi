@@ -659,11 +659,29 @@ def predict_longhorizon(lp, dates, moex_map: dict, N: int,
         if has_moex[t] and np.isfinite(z_t):
             pred = 1 if z_t > 0 else 0
             src = "moex_spread"
-            bname = _z_bucket_name(abs(z_t))
+            az = abs(float(z_t))
+            bname = _z_bucket_name(az)
             cell = z_buckets.get(bname) or {}
             if gate_passed:
                 if cell.get("n", 0) >= LONG_MIN_BUCKET_N and cell.get("rate") is not None:
-                    conf, csrc, bn = cell["rate"], "z_bucket_dynamic", cell["n"]
+                    # 全局连续插值: 把 4 个 z 桶命中率当控制点(|z|=阈值, 命中率),
+                    # 消除桶边界跳变(与 N=7 moex_dir 同口径)。
+                    _LB = {"z00": 0.0, "z03": 0.3, "z05": 0.5, "z10": 1.0}
+                    pts = [(b, _LB[b], (z_buckets.get(b) or {}).get("rate"))
+                           for b in _Z_BUCKET_NAMES]
+                    pts = [p for p in pts if p[2] is not None]
+                    if len(pts) >= 2 and az < pts[-1][1]:
+                        for i in range(len(pts) - 1):
+                            x0, y0 = pts[i][1], pts[i][2]
+                            x1, y1 = pts[i + 1][1], pts[i + 1][2]
+                            if x0 <= az < x1:
+                                cell_rate = y0 + (y1 - y0) * (az - x0) / (x1 - x0)
+                                break
+                        else:
+                            cell_rate = cell["rate"]
+                    else:
+                        cell_rate = cell["rate"]
+                    conf, csrc, bn = cell_rate, "z_bucket_dynamic", cell["n"]
                 elif agg_n >= LONG_MIN_BUCKET_N and agg_rate is not None:
                     conf, csrc, bn = agg_rate, "moex_aggregate_dynamic", agg_n
                 else:
