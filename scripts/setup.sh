@@ -173,19 +173,46 @@ fi
 # 双击 setup.command / start.command / stop.command 直接可用
 chmod +x setup.command start.command stop.command start.sh stop.sh scripts/*.sh 2>/dev/null || true
 
-# 桌面启动器(失败不阻塞安装): 双击桌面图标即可启动, 内嵌本目录绝对路径。
+# 桌面启动器: 创建 .app 包(图标内置, 100% 可靠显示), 双击即可启动。
 # 关桌宠会自动杀后台(v2.0.9 起), 不再需要"停止"快捷方式; stop.sh 仍保留
 # 供桌宠崩溃时手动兜底。
+APP="$HOME/Desktop/Son NiuBi.app"
 if [ -d "$HOME/Desktop" ]; then
-    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$HOME/Desktop/Son NiuBi.command" 2>/dev/null
-    chmod +x "$HOME/Desktop/Son NiuBi.command" 2>/dev/null
-    echo "Desktop launcher created: 'Son NiuBi.command'"
+    rm -rf "$APP"
+    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-    # 自定义图标: Mac 上 .command 默认是终端图标, 用 data/tubiao.png 生成
-    # .icns 并通过 Finder 赋给桌面文件。失败不影响使用(只是没自定义图标)。
+    # Info.plist: 指定可执行文件和图标
+    cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Son NiuBi</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.sonniubi.launcher</string>
+    <key>CFBundleName</key>
+    <string>Son NiuBi</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>2.0.15</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+</dict>
+</plist>
+PLIST
+
+    # 可执行脚本: cd 到安装目录并启动
+    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$APP/Contents/MacOS/Son NiuBi"
+    chmod +x "$APP/Contents/MacOS/Son NiuBi"
+
+    # 图标: 用 data/tubiao.png 生成 icon.icns 放进 Resources, 系统自动显示
     ICON_SRC="$PWD/data/tubiao.png"
     if [ -f "$ICON_SRC" ]; then
-        ICONSET="$(mktemp -d)/sonniubi.iconset"
+        ICONSET="$(mktemp -d)/icon.iconset"
         mkdir -p "$ICONSET"
         sips -z 16 16     "$ICON_SRC" --out "$ICONSET/icon_16x16.png"     >/dev/null 2>&1
         sips -z 32 32     "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"  >/dev/null 2>&1
@@ -197,27 +224,18 @@ if [ -d "$HOME/Desktop" ]; then
         sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null 2>&1
         sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_512x512.png"   >/dev/null 2>&1
         sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null 2>&1
-        ICNS="$(dirname "$ICONSET")/sonniubi.icns"
-        if iconutil -c icns "$ICONSET" -o "$ICNS" >/dev/null 2>&1 && [ -f "$ICNS" ]; then
-            # 赋图标优先级: fileicon(brew) > 系统Python+AppKit(最稳) > Finder AppleScript
-            TARGET="$HOME/Desktop/Son NiuBi.command"
-            if command -v fileicon >/dev/null 2>&1; then
-                fileicon set "$TARGET" "$ICNS" >/dev/null 2>&1
-            elif [ -x /usr/bin/python3 ]; then
-                /usr/bin/python3 - "$TARGET" "$ICNS" <<'PYEOF' >/dev/null 2>&1
-import AppKit, sys
-img = AppKit.NSImage.alloc().initWithContentsOfFile_(sys.argv[2])
-if img is not None:
-    AppKit.NSWorkspace.sharedWorkspace().setIcon_forFile_options_(img, sys.argv[1], 0)
-PYEOF
-            else
-                osascript -e "tell application \"Finder\" to set icon of (POSIX file \"$TARGET\" as alias) to (POSIX file \"$ICNS\" as alias)" >/dev/null 2>&1
-            fi
-            # 刷新 Finder 图标缓存
-            killall Finder >/dev/null 2>&1 || true
+        if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns" >/dev/null 2>&1; then
+            echo "Desktop launcher created: 'Son NiuBi.app' (with icon)"
+        else
+            echo "Desktop launcher created: 'Son NiuBi.app' (icon generation failed, using default)"
         fi
         rm -rf "$(dirname "$ICONSET")"
+    else
+        echo "Desktop launcher created: 'Son NiuBi.app' (no icon source)"
     fi
+
+    # 清理旧版 .command 快捷方式(如果还在)
+    rm -f "$HOME/Desktop/Son NiuBi.command" "$HOME/Desktop/Son NiuBi 停止.command"
 else
     echo "(桌面启动器创建失败, 不影响使用)"
 fi
