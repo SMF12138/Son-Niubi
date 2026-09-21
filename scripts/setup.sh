@@ -221,18 +221,41 @@ PLIST
     if [ -f "$ICON_SRC" ]; then
         ICONSET="$(mktemp -d)/icon.iconset"
         mkdir -p "$ICONSET"
-        sips -z 16 16     "$ICON_SRC" --out "$ICONSET/icon_16x16.png"     >/dev/null 2>&1
-        sips -z 32 32     "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"  >/dev/null 2>&1
-        sips -z 32 32     "$ICON_SRC" --out "$ICONSET/icon_32x32.png"     >/dev/null 2>&1
-        sips -z 64 64     "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"  >/dev/null 2>&1
-        sips -z 128 128   "$ICON_SRC" --out "$ICONSET/icon_128x128.png"   >/dev/null 2>&1
-        sips -z 256 256   "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png" >/dev/null 2>&1
-        sips -z 256 256   "$ICON_SRC" --out "$ICONSET/icon_256x256.png"   >/dev/null 2>&1
-        sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null 2>&1
-        sips -z 512 512   "$ICON_SRC" --out "$ICONSET/icon_512x512.png"   >/dev/null 2>&1
-        sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null 2>&1
-        if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns" >/dev/null 2>&1; then
+        # 用 .venv 的 Python+PIL 生成各尺寸 PNG(不依赖 sips, 兼容性更好)
+        "$PY" - "$ICON_SRC" "$ICONSET" <<'PYEOF' 2>/dev/null
+import sys
+try:
+    from PIL import Image
+    img = Image.open(sys.argv[1])
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    sizes = {
+        "icon_16x16.png": 16, "icon_16x16@2x.png": 32,
+        "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
+        "icon_128x128.png": 128, "icon_128x128@2x.png": 256,
+        "icon_256x256.png": 256, "icon_256x256@2x.png": 512,
+        "icon_512x512.png": 512, "icon_512x512@2x.png": 1024,
+    }
+    for name, sz in sizes.items():
+        r = img.resize((sz, sz), Image.LANCZOS)
+        r.save(f"{sys.argv[2]}/{name}")
+except Exception as e:
+    print(f"PIL icon error: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+        PIL_OK=$?
+        if [ "$PIL_OK" -eq 0 ] && iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns" >/dev/null 2>&1; then
             echo "Desktop launcher created: 'Son NiuBi.app' (with icon)"
+        elif [ "$PIL_OK" -eq 0 ] && command -v sips >/dev/null 2>&1; then
+            # PIL 成功但 iconutil 失败: 回退用 sips 逐个生成再 iconutil
+            sips -z 128 128 "$ICON_SRC" --out "$ICONSET/icon_128x128.png" >/dev/null 2>&1
+            sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_256x256.png" >/dev/null 2>&1
+            sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1
+            if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns" >/dev/null 2>&1; then
+                echo "Desktop launcher created: 'Son NiuBi.app' (with icon via sips fallback)"
+            else
+                echo "Desktop launcher created: 'Son NiuBi.app' (iconutil failed, using default)"
+            fi
         else
             echo "Desktop launcher created: 'Son NiuBi.app' (icon generation failed, using default)"
         fi
