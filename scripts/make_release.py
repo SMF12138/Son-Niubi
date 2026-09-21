@@ -25,7 +25,8 @@ COMMON_FILES = [
     "README.md", "KNOWN_ISSUES.md", "STRATEGY_FINDINGS.md", "DEVELOPMENT.md",
     "LICENSE", "requirements.txt", "requirements-dev.txt",
     "start.bat", "start.vbs", "stop.bat", "launch_widget.vbs",
-    "start.command", "stop.command", "setup.command", "start.sh", "stop.sh",
+    "start.command", "stop.command", "setup.command", "diagnose.command",
+    "start.sh", "stop.sh",
 ]
 SCRIPTS = ["setup.bat", "setup.ps1", "run.ps1", "setup.sh", "run.sh"]
 WIN_ONLY_SUFFIX = {".bat", ".vbs", ".ps1"}
@@ -140,11 +141,13 @@ def main() -> None:
         if TMP.exists():
             shutil.rmtree(TMP)
 
-    # 自检: Mac 包执行位 + 双平台关键文件
+    # 自检: Mac 包执行位 + 双平台关键文件 + 各版本修复指纹(防止工作区文件被
+    # 意外回退后打出"丢代码"的包 —— v2.0.16 曾因此把旧 longhorizon/meanrev 发出)
     with tarfile.open(out_tgz, "r:gz") as tf:
         modes = {m.name: m.mode for m in tf.getmembers() if m.isfile()}
         for probe in ["Son NiuBi/start.command", "Son NiuBi/start.sh",
-                      "Son NiuBi/stop.sh", "Son NiuBi/scripts/setup.sh"]:
+                      "Son NiuBi/stop.sh", "Son NiuBi/diagnose.command",
+                      "Son NiuBi/scripts/setup.sh"]:
             assert modes.get(probe) == 0o755, f"{probe} 缺执行位: {modes.get(probe)}"
         assert any(m.startswith("Son NiuBi/data/") for m in modes), "缺 data/"
         start_sh_bytes = tf.extractfile("Son NiuBi/start.sh").read()
@@ -152,6 +155,18 @@ def main() -> None:
         for banned in ["forecast_7.json", "forecast_30.json", "forecast_60.json",
                        "forecast_90.json", "moex_live.json", "pet_config.json"]:
             assert f"Son NiuBi/data/{banned}" not in modes, f"冻结文件混入包: {banned}"
+        # 修复指纹: 每个关键改动必须真实存在于包内
+        fingerprints = {
+            "Son NiuBi/scripts/setup.sh": [b"Son NiuBi.app"],
+            "Son NiuBi/app/models/moex_dir.py": [b"_PTS"],
+            "Son NiuBi/app/models/longhorizon.py": [b"cell_rate"],
+            "Son NiuBi/app/models/meanrev_dir.py": [b"blend"],
+            "Son NiuBi/floating_pet.py": [b"live_date[5:]"],
+        }
+        for member, needles in fingerprints.items():
+            body = tf.extractfile(member).read()
+            for needle in needles:
+                assert needle in body, f"修复指纹丢失: {member} 缺 {needle}"
     with zipfile.ZipFile(out_zip) as zf:
         names = zf.namelist()
         assert any(x.endswith("scripts\\setup.ps1") or x.endswith("scripts/setup.ps1") for x in names)

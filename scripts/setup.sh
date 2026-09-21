@@ -7,7 +7,8 @@
 #      installs it (asks for ONE admin password - macOS security requirement)
 #    - Linux: apt / dnf / pacman
 # 3. Creates .venv, installs dependencies, downloads ECharts if missing
-set -e
+# 注意: 不用 set -e —— 更新场景下 pip 单包下载失败不应阻止桌面快捷方式创建
+# (旧 .venv 仍可运行); 只有"首次安装且依赖无法导入"才是致命错误, 显式检查。
 cd "$(dirname "$0")/.."
 
 echo "[1/5] Locating Python 3.10+ ..."
@@ -129,12 +130,14 @@ echo "      OK ($PY_EXE)"
 
 echo "[2/5] Creating virtual environment .venv ..."
 if [ ! -f ".venv/bin/python" ]; then
-    "$PY_EXE" -m venv .venv
+    "$PY_EXE" -m venv .venv || { echo "ERROR: 创建 .venv 失败"; exit 1; }
 fi
 
 PY=".venv/bin/python"
 echo "[3/5] Installing dependencies (requirements.txt) ..."
-"$PY" -m pip install --disable-pip-version-check -q -r requirements.txt
+# 更新场景下 pip 失败不致命: 旧 .venv 里已有依赖, 下方 import 检查兜底
+"$PY" -m pip install --disable-pip-version-check -q -r requirements.txt \
+    || echo "WARNING: pip 安装有失败项(若是更新版本, 旧依赖通常仍可运行, 继续)"
 
 VENDOR="app/web/static/vendor/echarts.min.js"
 echo "[4/5] Preparing local ECharts asset ..."
@@ -159,7 +162,11 @@ else
     echo "ECharts already present, skipping"
 fi
 
-"$PY" -c "import flask, pandas, numpy; print('Dependencies OK')"
+if ! "$PY" -c "import flask, pandas, numpy" 2>/dev/null; then
+    echo "ERROR: 核心依赖缺失且 pip 安装失败, 请检查网络后重新运行本脚本"
+    exit 1
+fi
+echo "Dependencies OK"
 
 echo "[5/5] Checking tkinter (桌宠依赖) ..."
 if "$PY" -c "import tkinter" 2>/dev/null; then
@@ -171,7 +178,7 @@ fi
 
 # tar 包在 Windows 上打包会丢执行位; 这里统一补上, 保证 ./start.sh 和
 # 双击 setup.command / start.command / stop.command 直接可用
-chmod +x setup.command start.command stop.command start.sh stop.sh scripts/*.sh 2>/dev/null || true
+chmod +x setup.command start.command stop.command diagnose.command start.sh stop.sh scripts/*.sh 2>/dev/null || true
 
 # 桌面启动器: 创建 .app 包(图标内置, 100% 可靠显示), 双击即可启动。
 # 关桌宠会自动杀后台(v2.0.9 起), 不再需要"停止"快捷方式; stop.sh 仍保留
