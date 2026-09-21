@@ -128,6 +128,24 @@ if [ -z "$PY_EXE" ]; then
 fi
 echo "      OK ($PY_EXE)"
 
+# Linux(Debian/Ubuntu)坑: 系统 python3 存在但缺 venv/ensurepip 模块时, 建出的
+# .venv 里没有 pip, 依赖安装必然失败。创建 venv 前先探测, 缺就补装。
+if [ "$(uname -s)" = "Linux" ] && ! "$PY_EXE" -c "import ensurepip" 2>/dev/null; then
+    echo "[auto] python3 缺 venv/ensurepip 模块, 补装 python3-venv ..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update && sudo apt-get install -y python3-venv python3-full
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y python3
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm --needed python
+    fi
+    if ! "$PY_EXE" -c "import ensurepip" 2>/dev/null; then
+        echo "ERROR: python3-venv 安装失败, 请手动执行: sudo apt install python3-venv 后重跑本脚本"
+        exit 1
+    fi
+    echo "[auto] python3-venv 就绪"
+fi
+
 echo "[2/5] Creating virtual environment .venv ..."
 if [ ! -f ".venv/bin/python" ]; then
     "$PY_EXE" -m venv .venv || { echo "ERROR: 创建 .venv 失败"; exit 1; }
@@ -174,6 +192,7 @@ if "$PY" -c "import tkinter" 2>/dev/null; then
 else
     echo "WARNING: 未找到 tkinter —— 仪表盘可正常使用, 但桌宠无法启动。"
     echo "         Homebrew 用户请执行: brew install python-tk"
+    echo "         Debian/Ubuntu 用户请执行: sudo apt install python3-tk"
 fi
 
 # tar 包在 Windows 上打包会丢执行位; 这里统一补上, 保证 ./start.sh 和
