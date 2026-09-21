@@ -317,7 +317,10 @@ class MoexDirectionPredictor:
                     if x0 <= az < x1:
                         conf = y0 + (y1 - y0) * (az - x0) / (x1 - x0)
                         break
-            conf = max(0.5, min(conf, cap))
+            # 插值后 conf 已是基于校准命中率的连续值, 不再用桶级 cap 压回
+            # (cap=桶命中率时 min(conf,cap) 会抹杀全部插值增量, 使 conf 恒等于
+            # 桶值)。仅保留全局硬上限防极端值。
+            conf = max(0.5, min(conf, 0.85))
             pu = conf if pred == 1 else 1 - conf
             return {"prediction": pred, "confidence": round(conf, 3),
                     "prob_up": round(pu, 3), "prob_down": round(1 - pu, 3),
