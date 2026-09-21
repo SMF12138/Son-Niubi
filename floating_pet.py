@@ -41,7 +41,6 @@ VOICE1 = ROOT / "data" / "pet" / "voice1.wav"
 VOICE2 = ROOT / "data" / "pet" / "voice2.wav"
 # MOEX 实时市场价(Flask 快层每 60s 写一次), 仅供桌宠显示, 不参与预测
 LIVE_FILE = ROOT / "data" / "moex_live.json"
-LIVE_STALE_SEC = 600        # 超过 10 分钟没更新视为失效, 回退官方牌价
 # 快层每 60s 重写 forecast。超过此时长没更新 = 本文件夹没有服务在写数据
 # (多版本文件夹并存、端口被旧安装占住时会发生)。继续显示等于拿冻结的旧
 # 日期/旧置信度骗人, 不如显示"等待数据"。
@@ -694,7 +693,9 @@ class FloatingPet:
             pass
 
     def _read_live(self):
-        """读 MOEX 实时市场价。文件缺失/损坏/过期 -> 清空, 由 _draw_data 回退官方牌价。"""
+        """读 MOEX 实时市场价。文件缺失/损坏 -> 清空, 由 _draw_data 回退官方牌价。
+        过期【不】清空: "截至"必须与展示的盘价同源同刻 —— 保留最后一次盘价,
+        显示其原始日期+时间, 数据多旧由时间戳如实呈现, 不偷换成官价口径。"""
         try:
             if not LIVE_FILE.exists():
                 self.live = {}
@@ -707,7 +708,7 @@ class FloatingPet:
         except Exception:
             self.live = {}
             return
-        # 新鲜度: 快层每 60s 写一次, 太久没更新说明调度器/网络已断, 不能当实时价用
+        # 基本有效性: 无价/价格非法/时间戳来自未来(时钟错乱)才判无效
         price = self.live.get("price")
         stamp = self.live.get("fetched_at")
         if (not isinstance(stamp, str)
@@ -720,7 +721,7 @@ class FloatingPet:
         except ValueError:
             self.live = {}
             return
-        if age > LIVE_STALE_SEC or age < -60:
+        if age < -60:
             self.live = {}
 
     def _refresh_data(self):
@@ -911,8 +912,10 @@ class FloatingPet:
         conf = conf if isinstance(conf, (int, float)) else 0.5
         # 弱信号口径(与网页端一致): 把握度 < 55% 一律标弱, 其余显示涨跌
         weak = conf < 0.55
-        # 显示价: 优先 MOEX 实时市场价(第二行配时间 HH:MM), 取不到回退 forecast 里的
-        # 官方牌价(第二行配日期 YYYY-MM-DD)。标签文字不变, 口径差异靠这一行格式区分。
+        # 显示价: MOEX 盘价优先 —— 哪怕已陈旧也照用, "截至"与盘价同源同刻,
+        # 数据多旧由"截至"时间戳如实呈现, 不偷换成官价口径。
+        # 只有从未抓到过盘价才回退官方牌价: 此时"截至"= 牌价日 + forecast 重算时刻。
+        # 两种口径统一 MM-DD HH:MM 格式。
         live_price = self.live.get("price")
         live_price = (live_price if isinstance(live_price, (int, float))
                       and live_price > 0 else None)
@@ -923,11 +926,16 @@ class FloatingPet:
             rate = live_price
             live_date = str(self.live.get("date") or "")
             live_time = str(self.live.get("time") or "")
-            # 统一显示 MM-DD HH:MM, 避免休市时只看 HH:MM 像凝固
             if live_date:
                 as_of = f"{live_date[5:]} {live_time}"   # 09-19 18:50
             else:
                 as_of = live_time
+        else:
+            if len(as_of) >= 10:
+                as_of = as_of[5:]      # 2026-09-19 -> 09-19
+            if as_of and self.last_mtime and self.last_mtime > 0:
+                hhmm = dt.datetime.fromtimestamp(self.last_mtime).strftime("%H:%M")
+                as_of = f"{as_of} {hhmm}"
 
         color = UP_COLOR if pred == 1 else DOWN_COLOR
         word = "涨" if pred == 1 else "跌"
