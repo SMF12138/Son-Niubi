@@ -224,15 +224,31 @@ if [ -d "$HOME/Desktop" ]; then
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.0.15</string>
+    <string>2.1.2</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.13</string>
 </dict>
 </plist>
 PLIST
 
-    # 可执行脚本: cd 到安装目录并启动
-    printf '#!/bin/bash\ncd "%s"\nexec bash start.sh\n' "$PWD" > "$APP/Contents/MacOS/Son NiuBi"
+    # 可执行脚本: 必须经 Terminal.app 启动 start.sh, 不能直接 exec。
+    # 原因: 双击 .app 时 LaunchServices 不提供终端, 而 start.sh 把 Flask/桌宠
+    # 都放后台后立即退出 -> .app 主进程随之结束 -> 后台 fork 的 tkinter 桌宠
+    # 被孤立/回收, 窗口起不来, 全程无终端看不到报错, 表现就是"点击没反应"。
+    # 经 Terminal 启动: ①有可见终端和日志, 出错不静默; ②后台进程挂在 Terminal
+    # 会话下, 不随 .app 主进程退出被回收。
+    # 外层 heredoc 不带引号以展开 $PWD; 内层 'APPLESCRIPT' 带引号原样写入文件;
+    # \\" 在外层生成字面 \"(AppleScript 字符串里转义内层 bash 路径的双引号),
+    # 路径含空格(Son NiuBi)由这对内层双引号保证不断词。
+    cat > "$APP/Contents/MacOS/Son NiuBi" <<LAUNCHER
+#!/bin/bash
+/usr/bin/osascript <<'APPLESCRIPT'
+tell application "Terminal"
+    activate
+    do script "bash \\"$PWD/start.sh\\""
+end tell
+APPLESCRIPT
+LAUNCHER
     chmod +x "$APP/Contents/MacOS/Son NiuBi"
 
     # 图标: 用 data/tubiao.png 生成 icon.icns 放进 Resources, 系统自动显示

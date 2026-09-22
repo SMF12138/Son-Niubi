@@ -5,8 +5,9 @@
     moex_live.py   只取**当天最后一根分钟线**, 仅供显示, 不参与任何模型计算。
 
 抓取方式与 moex_rates.py 一致(同一个 ISS 端点、同样的 UA 与超时),
-只把 interval 从 24(日线) 换成 10(10 分钟线): 10 分钟线一天约 84 根,
-一页(100 根)即可取完, 不必翻页; 对"显示当前价"这个用途足够, 最坏延迟 10 分钟。
+只把 interval 从 24(日线) 换成 1(1 分钟线): 1 分钟线一天约 540 根,
+ISS 一页返回全部(实测 223 根在一页内, 无 PAGESIZE 限制);
+对"显示当前价"用途足够, 延迟约 1-2 分钟, 比 10 分钟线少 20+ 分钟。
 """
 import datetime as dt
 import json
@@ -25,7 +26,7 @@ _err_logged = False     # 连续失败只记一次日志: 快层每 60s 跑一�
 
 
 def fetch_latest(day: dt.date | None = None) -> dict | None:
-    """取最近一个有成交的交易日的最后一根 10 分钟 K 线收盘价。
+    """取最近一个有成交的交易日的最后一根 1 分钟 K 线收盘价。
 
     返回 {"date": "YYYY-MM-DD", "time": "HH:MM", "price": float}。
     任何网络/解析问题一律返回 None(不抛异常), 由调用方回退到官方牌价。
@@ -34,7 +35,7 @@ def fetch_latest(day: dt.date | None = None) -> dict | None:
     today = day or dt.date.today()
     for back in range(_LOOKBACK_DAYS):
         d = (today - dt.timedelta(days=back)).isoformat()
-        url = f"{_BASE}?from={d}&till={d}&interval=10&iss.meta=off&start=0"
+        url = f"{_BASE}?from={d}&till={d}&interval=1&iss.meta=off&start=0"
         try:
             payload = json.loads(http.open_url(url, timeout=8).read())
         except Exception as e:      # noqa: BLE001

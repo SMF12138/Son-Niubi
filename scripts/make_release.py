@@ -157,11 +157,14 @@ def main() -> None:
             assert f"Son NiuBi/data/{banned}" not in modes, f"冻结文件混入包: {banned}"
         # 修复指纹: 每个关键改动必须真实存在于包内
         fingerprints = {
-            "Son NiuBi/scripts/setup.sh": [b"Son NiuBi.app"],
+            "Son NiuBi/scripts/setup.sh": [b"Son NiuBi.app",
+                                           b"osascript"],
             "Son NiuBi/app/models/moex_dir.py": [b"_PTS"],
             "Son NiuBi/app/models/longhorizon.py": [b"cell_rate"],
             "Son NiuBi/app/models/meanrev_dir.py": [b"blend"],
             "Son NiuBi/floating_pet.py": [b"live_date[5:]"],
+            # v2.1.2: 实时盘价改 1 分钟线(原 10 分钟线延迟 30+ 分钟)
+            "Son NiuBi/app/data/moex_live.py": [b"interval=1&iss.meta=off"],
         }
         for member, needles in fingerprints.items():
             body = tf.extractfile(member).read()
