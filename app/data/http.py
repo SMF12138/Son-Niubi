@@ -9,6 +9,7 @@
 """
 import logging
 import os
+import ssl
 import urllib.request
 
 import requests
@@ -20,6 +21,23 @@ _PROXY_ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
 
 # requests 里"显式不走代理"的写法
 _NO_PROXY = {"http": None, "https": None}
+
+
+def _ssl_context():
+    """构造 HTTPS 校验上下文, 优先用 certifi 的根证书包。
+
+    必要性: python.org 安装的 macOS Python 若没跑过 post-install 的
+    "Install Certificates.command", 标准库 urllib/ssl 的系统证书库为空,
+    所有 HTTPS 请求都会报 CERTIFICATE_VERIFY_FAILED("self-signed
+    certificate in certificate chain")。requests 因为自带 certifi 不受影响,
+    会造成"官价能抓、MOEX 盘价(urllib)全挂"的分裂。certifi 已随 requests
+    装进 venv, 让 urllib 显式用它即可, 不依赖用户系统配置。
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:      # noqa: BLE001  certifi 缺失时退回系统默认库
+        return ssl.create_default_context()
 
 
 def has_proxy_env() -> bool:
@@ -42,14 +60,18 @@ def get(url, timeout, session=None, **kwargs):
 
 def open_url(url, timeout, headers=None):
     """urllib 版: 代理失败时自动禁用代理重试一次, 返回 response 对象。"""
+    ctx = _ssl_context()
     try:
-        return urllib.request.urlopen(_req(url, headers), timeout=timeout)
+        return urllib.request.urlopen(_req(url, headers), timeout=timeout,
+                                      context=ctx)
     except Exception as e:      # noqa: BLE001
         if not has_proxy_env():
             raise
         log.warning("带代理请求失败, 改直连重试一次 (%s): %s",
                     url.split("?")[0], e)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ctx),
+            urllib.request.ProxyHandler({}))
         return opener.open(_req(url, headers), timeout=timeout)
 
 

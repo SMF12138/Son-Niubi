@@ -12,6 +12,7 @@ ISS 一页返回全部(实测 223 根在一页内, 无 PAGESIZE 限制);
 import datetime as dt
 import json
 import logging
+import time
 
 from app import config
 from app.data import http
@@ -22,7 +23,32 @@ _BASE = ("https://iss.moex.com/iss/engines/currency/markets/selt/boards/"
          "CETS/securities/CNYRUB_TOM/candles.json")
 
 _LOOKBACK_DAYS = 7      # 今天没成交(闭市/周末/长假)时, 向前找最近一个有数据的交易日
-_err_logged = False     # 连续失败只记一次日志: 快层每 60s 跑一次, 否则日志会被刷爆
+_HTTP_TRIES = 3         # 单次 URL 抓取尝试次数(含首次): 偶发 SSL/超时抖动重试两次
+_ERR_LOG_INTERVAL = 3600.0   # 同类失败日志节流间隔(秒): 既不刷爆日志, 也不永久静默
+_last_err_logged = 0.0  # 上次记录抓取失败的 monotonic 时刻
+
+
+def _open_with_retry(url: str) -> bytes | None:
+    """抓 URL, 网络异常时退避重试(1s/2s), 全败返回 None。
+
+    只重试"请求没发出去/响应没拿到"类异常; HTTP 200 但 K 线为空是闭市的正常
+    响应, 不算失败, 由调用方按天回退, 不触发重试。
+    """
+    global _last_err_logged
+    last_exc: Exception | None = None
+    for attempt in range(_HTTP_TRIES):
+        try:
+            return http.open_url(url, timeout=8).read()
+        except Exception as e:      # noqa: BLE001
+            last_exc = e
+            if attempt < _HTTP_TRIES - 1:
+                time.sleep(attempt + 1)
+    now = time.monotonic()
+    if now - _last_err_logged >= _ERR_LOG_INTERVAL:
+        log.warning("MOEX 分钟线抓取失败(已重试 %d 次, %.0f 分钟内不再重复记录): %s",
+                    _HTTP_TRIES - 1, _ERR_LOG_INTERVAL / 60, last_exc)
+        _last_err_logged = now
+    return None
 
 
 def fetch_latest(day: dt.date | None = None) -> dict | None:
@@ -31,17 +57,16 @@ def fetch_latest(day: dt.date | None = None) -> dict | None:
     返回 {"date": "YYYY-MM-DD", "time": "HH:MM", "price": float}。
     任何网络/解析问题一律返回 None(不抛异常), 由调用方回退到官方牌价。
     """
-    global _err_logged
     today = day or dt.date.today()
     for back in range(_LOOKBACK_DAYS):
         d = (today - dt.timedelta(days=back)).isoformat()
         url = f"{_BASE}?from={d}&till={d}&interval=1&iss.meta=off&start=0"
+        raw = _open_with_retry(url)
+        if raw is None:
+            return None     # 网络层彻底失败(已重试): 不再往前翻天, 等下个 60s 周期
         try:
-            payload = json.loads(http.open_url(url, timeout=8).read())
-        except Exception as e:      # noqa: BLE001
-            if not _err_logged:
-                log.warning("MOEX 分钟线抓取失败(后续连续失败不再重复记录): %s", e)
-                _err_logged = True
+            payload = json.loads(raw)
+        except Exception:      # noqa: BLE001
             return None
         block = payload.get("candles") or {}
         rows = block.get("data") or []
@@ -53,7 +78,6 @@ def fetch_latest(day: dt.date | None = None) -> dict | None:
         for r in reversed(rows):    # 倒着找第一根有收盘价的
             if r[cols["close"]] is not None:
                 begin = str(r[cols["begin"]])
-                _err_logged = False
                 return {"date": begin[:10], "time": begin[11:16],
                         "price": float(r[cols["close"]])}
     return None

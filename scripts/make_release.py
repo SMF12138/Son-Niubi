@@ -164,7 +164,14 @@ def main() -> None:
             "Son NiuBi/app/models/meanrev_dir.py": [b"blend"],
             "Son NiuBi/floating_pet.py": [b"live_date[5:]"],
             # v2.1.2: 实时盘价改 1 分钟线(原 10 分钟线延迟 30+ 分钟)
-            "Son NiuBi/app/data/moex_live.py": [b"interval=1&iss.meta=off"],
+            "Son NiuBi/app/data/moex_live.py": [b"interval=1&iss.meta=off",
+                                                b"_HTTP_TRIES"],
+            # v2.1.3: urllib 用 certifi 证书库(python.org Mac Python 证书库为空,
+            #  MOEX 抓取必挂); MOEX 抓取失败重试; requirements 显式声明 certifi;
+            #  diagnose 增 MOEX 直连测试
+            "Son NiuBi/app/data/http.py": [b"certifi.where()"],
+            "Son NiuBi/requirements.txt": [b"certifi=="],
+            "Son NiuBi/diagnose.command": [b"moex_live import fetch_latest"],
         }
         for member, needles in fingerprints.items():
             body = tf.extractfile(member).read()

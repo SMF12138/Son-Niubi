@@ -2,6 +2,10 @@
 # 升级大版本前请先跑 tests/ 全套回归。
 flask==3.1.3
 requests==2.34.2
+# urllib 显式使用 certifi 根证书包: python.org 版 macOS Python 不跑
+# "Install Certificates.command" 时标准库证书库为空, MOEX(urllib)抓取必挂。
+# requests 虽间接依赖它, 这里直接声明, 避免间接依赖被移除。
+certifi==2026.07.22
 pandas==2.3.3
 numpy==2.2.6
 # 桌宠角色图: Tk 8.6 原生可读 PNG, Tk 8.5(部分 macOS 链接系统 Tk)不行,

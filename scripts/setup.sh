@@ -224,7 +224,7 @@ if [ -d "$HOME/Desktop" ]; then
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.2</string>
+    <string>2.1.3</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.13</string>
 </dict>

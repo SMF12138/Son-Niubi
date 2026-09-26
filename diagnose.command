@@ -66,6 +66,49 @@ else
 fi
 echo ""
 
+echo "--- MOEX 实时盘价抓取测试 / MOEX live fetch test ---"
+if [ -f ".venv/bin/python" ]; then
+  .venv/bin/python - <<'PYEOF'
+import datetime as dt
+import os
+import traceback
+
+proxy = {k: v for k, v in os.environ.items() if "proxy" in k.lower()}
+print("proxy env:", proxy or "(none 无代理)")
+
+from app.data import http
+
+# 用上一个工作日做测试日(周末/假日当天无 K 线属正常, 不代表网络问题)
+d = dt.date.today()
+for _ in range(7):
+    if d.weekday() < 5:
+        break
+    d -= dt.timedelta(days=1)
+url = ("https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/"
+       "securities/CNYRUB_TOM/candles.json"
+       f"?from={d}&till={d}&interval=1&iss.meta=off")
+print("test day:", d, "(weekday" , d.weekday(), ")")
+
+print("[1] 直连测试(含代理失败自动改直连):")
+try:
+    raw = http.open_url(url, timeout=8).read()
+    print("    HTTP OK, bytes =", len(raw))
+except Exception:
+    print("    HTTP FAILED 失败, 完整报错如下:")
+    traceback.print_exc()
+
+print("[2] 业务函数 fetch_latest():")
+try:
+    from app.data.moex_live import fetch_latest
+    print("   ", fetch_latest())
+except Exception:
+    traceback.print_exc()
+PYEOF
+else
+  echo "(.venv 缺失, 跳过 / .venv missing, skipped)"
+fi
+echo ""
+
 echo "--- 运行中的进程 / Running processes ---"
 ps aux | grep -E "app\.cli serve|floating_pet" | grep -v grep || echo "(无 / none)"
 echo ""
